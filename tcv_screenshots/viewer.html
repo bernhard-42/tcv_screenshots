@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <style>
+            body {
+                margin: 0;
+            }
+            #cad_view {
+                width: 100vw;
+                height: 100vh;
+            }
+        </style>
+        <link rel="stylesheet" href="./three-cad-viewer.css" />
+    </head>
+    <body>
+        <div id="cad_view"></div>
+        <script src="./three-cad-viewer.js"></script>
+        <script>
+            const container = document.getElementById("cad_view");
+
+            let display = null;
+            let viewer = null;
+
+            // Load model with config from JSON
+            // All config keys are passed through - each component uses what it recognizes
+            window.loadModel = (data) => {
+                const modelData = data.model;
+                const config = data.config;
+
+                // Initialize display and viewer on first load
+                if (!display) {
+                    display = new CadViewer.Display(container, config);
+                    viewer = new CadViewer.Viewer(display, config, () => {});
+                }
+
+                viewer.render(modelData, config, config);
+
+                // Resize viewer after render (camera must exist first)
+                viewer.resizeCadView(
+                    config.cadWidth,
+                    config.treeWidth,
+                    config.height,
+                    config.glass
+                );
+
+                if (
+                    config.tab &&
+                    ["tree", "clip", "material", "zebra"].includes(config.tab)
+                ) {
+                    viewer.display.selectTabByName(config.tab);
+                    delete config.tab;
+                }
+            };
+
+            window.isReady = () => viewer && viewer.ready;
+
+            window.getImage = (taskId) => viewer.getImage(taskId);
+        </script>
+    </body>
+</html>

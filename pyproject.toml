@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tcv-screenshots"
+version = "0.1.0"
+description = "Headless screenshot generator for three-cad-viewer"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [
+    { name = "Bernhard Walter" }
+]
+dependencies = [
+    "playwright>=1.40.0",
+    "ocp_tessellate",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build",
+]
+
+[tool.setuptools.packages.find]
+include = ["tcv_screenshots*"]
+
+[tool.setuptools.package-data]
+tcv_screenshots = ["*.html", "*.js", "*.css"]

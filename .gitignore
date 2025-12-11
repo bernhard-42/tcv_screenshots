@@ -1,0 +1,13 @@
+# Generated directories
+models/
+screenshots/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.pyc
+
+# OS files
+.DS_Store
