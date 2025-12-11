@@ -94,7 +94,7 @@ def export_examples_to_json(examples_dir: Path, models_dir: Path) -> list[Path]:
 
             # Check for main() function
             if not hasattr(module, "main"):
-                print(f"⊘ {model_name}: no main() function, skipping")
+                print(f"SKIP {model_name}: no main() function, skipping")
                 continue
 
             # Call main() to get the CAD object and config
@@ -108,7 +108,7 @@ def export_examples_to_json(examples_dir: Path, models_dir: Path) -> list[Path]:
                 example_config = {}
 
             if cad_object is None:
-                print(f"⊘ {model_name}: main() returned None, skipping")
+                print(f"SKIP {model_name}: main() returned None, skipping")
                 continue
 
             # Merge defaults with example overrides
@@ -126,11 +126,11 @@ def export_examples_to_json(examples_dir: Path, models_dir: Path) -> list[Path]:
 
             output_path.write_text(json.dumps(combined_data), encoding="utf-8")
 
-            print(f"✓ {model_name}.json")
+            print(f"OK {model_name}.json")
             generated_files.append(output_path)
 
         except Exception as e:
-            print(f"✗ {model_name}: {e}")
+            print(f"FAILURE {model_name}: {e}")
 
     return generated_files
 
@@ -273,11 +273,11 @@ async def render_models_to_screenshots(
                 image_bytes = base64.b64decode(base64_data)
                 output_path.write_bytes(image_bytes)
 
-                print(f"✓ {model_name}.png")
+                print(f"OK {model_name}.png")
                 success_count += 1
 
             except Exception as e:
-                print(f"✗ {model_name}: {e}")
+                print(f"FAILURE {model_name}: {e}")
                 fail_count += 1
 
         await browser.close()
