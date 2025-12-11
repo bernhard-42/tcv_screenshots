@@ -22,11 +22,13 @@ python -m tcv_screenshots examples/ models/ screenshots/ [options]
 ```
 
 **Arguments:**
+
 - `examples/` - Directory containing Python example files
 - `models/` - Directory for JSON model files
 - `screenshots/` - Directory for output PNG screenshots
 
 **Options:**
+
 - `--skip-export` - Skip JSON export, only render existing models
 - `--skip-render` - Skip rendering, only export JSON models
 - `--no-headless` - Show browser window (for debugging)
@@ -61,7 +63,12 @@ def main():
 
 ### Available Config Options
 
+See [VS Code CAD Viewer's show command](https://github.com/bernhard-42/vscode-ocp-cad-viewer/blob/main/docs/show.md)
+
+#### Examples
+
 **Display options:**
+
 - `cadWidth` - Viewport width (default: 1200)
 - `height` - Viewport height (default: 800)
 - `treeWidth` - Tree panel width (default: 0)
@@ -70,6 +77,7 @@ def main():
 - `tools` - Show tools (default: False)
 
 **Render options:**
+
 - `ambientIntensity` - Ambient light intensity (default: 1.0)
 - `directIntensity` - Direct light intensity (default: 1.1)
 - `metalness` - Material metalness (default: 0.3)
@@ -77,10 +85,11 @@ def main():
 - `edgeColor` - Edge color as hex int (default: 0x707070)
 
 **Viewer options:**
+
 - `ortho` - Orthographic projection (default: True)
 - `control` - Control type (default: 'trackball')
 - `up` - Up axis: 'Z' or 'Y' (default: 'Z')
-- `tab` - Active tab: 'tree', 'clip', 'material', 'zebra'
+- `tab` - Active tab: 'tree', 'clip', 'material'
 
 ## Development
 
