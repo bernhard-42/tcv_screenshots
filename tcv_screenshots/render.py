@@ -78,7 +78,6 @@ def export_examples_to_json(examples_dir: Path, models_dir: Path) -> list[Path]:
 
     for example_path in example_files:
         model_name = example_path.stem
-        output_path = models_dir / f"{model_name}.json"
 
         try:
             # Dynamically import the example module
@@ -97,37 +96,54 @@ def export_examples_to_json(examples_dir: Path, models_dir: Path) -> list[Path]:
                 print(f"SKIP {model_name}: no main() function, skipping")
                 continue
 
-            # Call main() to get the CAD object and config
+            # Call main() to get the CAD object(s) and config(s)
             result = module.main()
 
-            # Handle both (model, config) tuple and single model return
-            if isinstance(result, tuple) and len(result) == 2:
-                cad_object, example_config = result
-            else:
-                cad_object = result
-                example_config = {}
+            # Normalize result to list of (model, name, config)
+            models_to_export = []
 
-            if cad_object is None:
+            if isinstance(result, list):
+                # List from get_saved_models(): [(model, name, config), ...]
+                for item in result:
+                    if isinstance(item, tuple) and len(item) == 3:
+                        models_to_export.append(item)
+                    else:
+                        print(f"SKIP {model_name}: invalid list item format")
+            elif isinstance(result, tuple) and len(result) == 2:
+                # Old format: (model, config)
+                models_to_export.append((result[0], model_name, result[1]))
+            elif result is not None:
+                # Single model, no config
+                models_to_export.append((result, model_name, {}))
+            else:
                 print(f"SKIP {model_name}: main() returned None, skipping")
                 continue
 
-            # Merge defaults with example overrides
-            config = {**DEFAULT_CONFIG, **(example_config or {})}
+            if not models_to_export:
+                print(f"SKIP {model_name}: no models to export")
+                continue
 
-            # Export model to JSON string
-            model_json = export_three_cad_viewer_js(None, cad_object)
-            model_data = json.loads(model_json)
+            # Export each model
+            for cad_object, output_name, example_config in models_to_export:
+                output_path = models_dir / f"{output_name}.json"
 
-            # Create combined JSON with model and config
-            combined_data = {
-                "model": model_data,
-                "config": config
-            }
+                # Merge defaults with example overrides
+                config = {**DEFAULT_CONFIG, **(example_config or {})}
 
-            output_path.write_text(json.dumps(combined_data), encoding="utf-8")
+                # Export model to JSON string
+                model_json = export_three_cad_viewer_js(None, cad_object)
+                model_data = json.loads(model_json)
 
-            print(f"OK {model_name}.json")
-            generated_files.append(output_path)
+                # Create combined JSON with model and config
+                combined_data = {
+                    "model": model_data,
+                    "config": config
+                }
+
+                output_path.write_text(json.dumps(combined_data), encoding="utf-8")
+
+                print(f"OK {output_name}.json")
+                generated_files.append(output_path)
 
         except Exception as e:
             print(f"FAILURE {model_name}: {e}")
