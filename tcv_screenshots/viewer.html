@@ -58,6 +58,15 @@
                     viewer.display.setView(config.reset_camera);
                     delete config.reset_camera;
                 }
+
+                if (config.render_edges === false) {
+                    const g = viewer.nestedGroup.rootGroup.name.replace("|", "/");
+                    viewer.setState(g, [1, 0]);
+                }
+                if (config.render_faces === false) {
+                    const g = viewer.nestedGroup.rootGroup.name.replace("|", "/");
+                    viewer.setState(g, [0, 1]);
+                }
             };
 
             window.isReady = () => viewer && viewer.ready;
