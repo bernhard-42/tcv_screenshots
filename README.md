@@ -15,6 +15,8 @@ pip install tcv-screenshots
 playwright install chromium
 ```
 
+If you use build123d for creating 3D objects, `build123d` neeeds to be installed, similar for CadQuery.
+
 ## Usage
 
 ```bash
