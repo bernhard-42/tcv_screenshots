@@ -94,6 +94,10 @@ See [VS Code CAD Viewer's show command](https://github.com/bernhard-42/vscode-oc
 - `tab` - Active tab: 'tree', 'clip', 'material'
 - `reset_camera` - Camera view: 'iso', 'front', 'rear', 'left', 'right', 'top', 'bottom'
 
+## CI/CD
+
+`tcv_screenshots` can be used in CI/CD workflows, an example can seen in [.github/workflows/screenshots.yml](.github/workflows/screenshots.yml)
+
 ## Development
 
 Build the wheel:
