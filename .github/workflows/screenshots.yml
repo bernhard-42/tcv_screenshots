@@ -15,21 +15,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
       - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+        run: uv python install 3.11
 
       - name: Install dependencies
         run: |
-          pip install build123d
-          pip install -e .
-          playwright install chromium
+          uv pip install --system build123d
+          uv pip install --system -e .
+          uv run playwright install chromium
 
       - name: Generate screenshots
         run: |
           mkdir -p models screenshots
-          python -m tcv_screenshots examples/ models/ screenshots/
+          uv run python -m tcv_screenshots examples/ models/ screenshots/
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
