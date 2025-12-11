@@ -22,5 +22,10 @@ def main():
     c3 = Compound(label="c3", children=[s4, s5])
     c1 = Compound(label="c1", children=[s1, c2, c3])
 
-    config = {"cadWidth": 800, "height": 600, "zoom": 1.4}
+    config = {
+        "cadWidth": 800,
+        "height": 600,
+        "zoom": 1.4,
+        "reset_camera": "front",
+    }
     return c1, config

@@ -50,6 +50,14 @@
                     viewer.display.selectTabByName(config.tab);
                     delete config.tab;
                 }
+
+                if (
+                    config.reset_camera &&
+                    ["iso", "left", "right", "top", "bottom", "rear", "front"].includes(config.reset_camera)
+                ) {
+                    viewer.display.setView(config.reset_camera);
+                    delete config.reset_camera;
+                }
             };
 
             window.isReady = () => viewer && viewer.ready;

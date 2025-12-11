@@ -92,6 +92,7 @@ See [VS Code CAD Viewer's show command](https://github.com/bernhard-42/vscode-oc
 - `control` - Control type (default: 'trackball')
 - `up` - Up axis: 'Z' or 'Y' (default: 'Z')
 - `tab` - Active tab: 'tree', 'clip', 'material'
+- `reset_camera` - Camera view: 'iso', 'front', 'rear', 'left', 'right', 'top', 'bottom'
 
 ## Development
 

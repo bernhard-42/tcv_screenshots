@@ -388,6 +388,7 @@ def main():
         "clipSlider0": 0,
         "clipSlider1": 0,
         "clipSlider2": 20,
+        "tab": "clip",
         # use --no-headless --pause to adjust and the get these values
         "position": [465.13821536663306, 475.87160219808436, 463.221708753305],
         "quaternion": [
@@ -398,6 +399,5 @@ def main():
         ],
         "target": [-100, -93.37442992154989, -9.027548509050252],
         "zoom": 1.2,
-        "tab": "clip",
     }
     return create_hexapod(), config
