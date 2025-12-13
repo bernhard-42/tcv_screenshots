@@ -3,8 +3,7 @@
 Headless CAD model renderer.
 
 1. Runs all examples in examples/ folder (each must have a main() returning model or (model, config))
-2. Exports them to JSON in models/
-3. Renders all models to PNG screenshots
+2. Renders all models to PNG screenshots
 
 Cross-platform: Linux (Intel/ARM), Windows (Intel), macOS (Intel/ARM).
 """
@@ -45,16 +44,21 @@ def get_package_file(filename: str) -> Path:
     return importlib.resources.files("tcv_screenshots").joinpath(filename)
 
 
-def export_examples_to_json(examples_dir: Path, models_dir: Path) -> list[Path]:
+def process_examples(examples_dir: Path, models_dir: Path = None) -> list[tuple[str, dict]]:
     """
-    Run all examples and export CAD objects to JSON files.
+    Run all examples and convert CAD objects to viewer data.
 
     Each example's main() should return either:
     - model: CAD object to render (uses all defaults)
     - (model, config): CAD object + dict of config overrides
+    - list of (model, name, config) tuples from get_saved_models()
+
+    Args:
+        examples_dir: Directory containing Python example files
+        models_dir: If provided, save JSON files here (debug mode)
 
     Returns:
-        List of generated JSON file paths
+        List of (name, data) tuples where data is {model, config}
     """
     # Import ocp_tessellate once (heavy import)
     from ocp_tessellate.convert import export_three_cad_viewer_js
@@ -69,12 +73,13 @@ def export_examples_to_json(examples_dir: Path, models_dir: Path) -> list[Path]:
         print(f"No example files found in {examples_dir}")
         return []
 
-    print(f"Found {len(example_files)} example(s) to export")
+    print(f"Found {len(example_files)} example(s) to process")
 
-    # Ensure models directory exists
-    models_dir.mkdir(parents=True, exist_ok=True)
+    # Ensure models directory exists if saving
+    if models_dir:
+        models_dir.mkdir(parents=True, exist_ok=True)
 
-    generated_files = []
+    processed_models = []
 
     for example_path in example_files:
         model_name = example_path.stem
@@ -100,33 +105,31 @@ def export_examples_to_json(examples_dir: Path, models_dir: Path) -> list[Path]:
             result = module.main()
 
             # Normalize result to list of (model, name, config)
-            models_to_export = []
+            models_to_process = []
 
             if isinstance(result, list):
                 # List from get_saved_models(): [(model, name, config), ...]
                 for item in result:
                     if isinstance(item, tuple) and len(item) == 3:
-                        models_to_export.append(item)
+                        models_to_process.append(item)
                     else:
                         print(f"SKIP {model_name}: invalid list item format")
             elif isinstance(result, tuple) and len(result) == 2:
                 # Old format: (model, config)
-                models_to_export.append((result[0], model_name, result[1]))
+                models_to_process.append((result[0], model_name, result[1]))
             elif result is not None:
                 # Single model, no config
-                models_to_export.append((result, model_name, {}))
+                models_to_process.append((result, model_name, {}))
             else:
                 print(f"SKIP {model_name}: main() returned None, skipping")
                 continue
 
-            if not models_to_export:
-                print(f"SKIP {model_name}: no models to export")
+            if not models_to_process:
+                print(f"SKIP {model_name}: no models to process")
                 continue
 
-            # Export each model
-            for cad_object, output_name, example_config in models_to_export:
-                output_path = models_dir / f"{output_name}.json"
-
+            # Process each model
+            for cad_object, output_name, example_config in models_to_process:
                 # Merge defaults with example overrides
                 config = {**DEFAULT_CONFIG, **(example_config or {})}
 
@@ -134,34 +137,37 @@ def export_examples_to_json(examples_dir: Path, models_dir: Path) -> list[Path]:
                 model_json = export_three_cad_viewer_js(None, cad_object)
                 model_data = json.loads(model_json)
 
-                # Create combined JSON with model and config
+                # Create combined data with model and config
                 combined_data = {
                     "model": model_data,
                     "config": config
                 }
 
-                output_path.write_text(json.dumps(combined_data), encoding="utf-8")
+                # Save to file if debug mode
+                if models_dir:
+                    output_path = models_dir / f"{output_name}.json"
+                    output_path.write_text(json.dumps(combined_data), encoding="utf-8")
+                    print(f"OK {output_name}.json")
 
-                print(f"OK {output_name}.json")
-                generated_files.append(output_path)
+                processed_models.append((output_name, combined_data))
 
         except Exception as e:
             print(f"FAILURE {model_name}: {e}")
 
-    return generated_files
+    return processed_models
 
 
 async def render_models_to_screenshots(
-    models_dir: Path,
+    models: list[tuple[str, dict]],
     screenshots_dir: Path,
     headless: bool = True,
     pause: bool = False
 ) -> int:
     """
-    Render all JSON model files to PNG screenshots.
+    Render models to PNG screenshots.
 
     Args:
-        models_dir: Directory containing JSON model files
+        models: List of (name, data) tuples where data is {model, config}
         screenshots_dir: Directory for output PNG files
         headless: Run browser in headless mode
         pause: Pause before each screenshot for debugging
@@ -171,14 +177,11 @@ async def render_models_to_screenshots(
     """
     from playwright.async_api import async_playwright
 
-    # Find all JSON files
-    json_files = sorted(models_dir.glob("*.json"))
-
-    if not json_files:
-        print(f"No JSON files found in {models_dir}")
+    if not models:
+        print("No models to render")
         return 0
 
-    print(f"\nRendering {len(json_files)} model(s) to screenshots")
+    print(f"\nRendering {len(models)} model(s) to screenshots")
 
     # Ensure output directory exists
     screenshots_dir.mkdir(parents=True, exist_ok=True)
@@ -227,14 +230,10 @@ async def render_models_to_screenshots(
             return 1
 
         # Process each model
-        for model_path in json_files:
-            model_name = model_path.stem
+        for model_name, json_data in models:
             output_path = screenshots_dir / f"{model_name}.png"
 
             try:
-                # Load JSON data (contains {model, config})
-                json_data = json.loads(model_path.read_text(encoding="utf-8"))
-
                 # Set viewport to match config dimensions
                 config = json_data.get("config", {})
                 width = config.get("cadWidth", DEFAULT_CONFIG["cadWidth"])
@@ -304,27 +303,27 @@ async def render_models_to_screenshots(
 
 def run(
     examples_dir: Path,
-    models_dir: Path,
     screenshots_dir: Path,
     headless: bool = True,
     pause: bool = False,
-    skip_export: bool = False,
-    skip_render: bool = False,
+    debug_models_dir: Path = None,
 ):
     """Main entry point."""
-    # Phase 1: Export examples to JSON
-    if not skip_export:
-        print("=== Exporting examples to JSON ===\n")
-        export_examples_to_json(examples_dir, models_dir)
+    # Process examples (optionally save JSON in debug mode)
+    print("=== Processing examples ===\n")
+    models = process_examples(examples_dir, debug_models_dir)
 
-    # Phase 2: Render models to screenshots
-    if not skip_render:
-        print("\n=== Rendering models to screenshots ===")
-        fail_count = asyncio.run(render_models_to_screenshots(
-            models_dir,
-            screenshots_dir,
-            headless=headless,
-            pause=pause
-        ))
-        if fail_count > 0:
-            sys.exit(1)
+    if not models:
+        print("No models to render")
+        return
+
+    # Render models to screenshots
+    print("\n=== Rendering models to screenshots ===")
+    fail_count = asyncio.run(render_models_to_screenshots(
+        models,
+        screenshots_dir,
+        headless=headless,
+        pause=pause
+    ))
+    if fail_count > 0:
+        sys.exit(1)

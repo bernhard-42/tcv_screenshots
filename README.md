@@ -20,21 +20,19 @@ If you use build123d for creating 3D objects, `build123d` neeeds to be installed
 ## Usage
 
 ```bash
-python -m tcv_screenshots examples/ models/ screenshots/ [options]
+python -m tcv_screenshots examples/ screenshots/ [options]
 ```
 
 **Arguments:**
 
 - `examples/` - Directory containing Python example files
-- `models/` - Directory for JSON model files
 - `screenshots/` - Directory for output PNG screenshots
 
 **Options:**
 
-- `--skip-export` - Skip JSON export, only render existing models
-- `--skip-render` - Skip rendering, only export JSON models
 - `--no-headless` - Show browser window (for debugging)
 - `--pause` - Pause before each screenshot (for debugging)
+- `--debug MODELS_DIR` - Save JSON model files to directory (for debugging)
 
 ## Writing Examples
 

@@ -40,8 +40,8 @@ jobs:
 
       - name: Generate screenshots
         run: |
-          mkdir -p models screenshots
-          python -m tcv_screenshots examples/ models/ screenshots/
+          mkdir -p screenshots
+          python -m tcv_screenshots examples/ screenshots/
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
