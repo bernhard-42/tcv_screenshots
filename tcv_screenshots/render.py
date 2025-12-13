@@ -44,7 +44,9 @@ def get_package_file(filename: str) -> Path:
     return importlib.resources.files("tcv_screenshots").joinpath(filename)
 
 
-def process_examples(examples_dir: Path, models_dir: Path = None) -> list[tuple[str, dict]]:
+def process_examples(
+    examples_dir: Path, models_dir: Path = None
+) -> list[tuple[str, dict]]:
     """
     Run all examples and convert CAD objects to viewer data.
 
@@ -65,8 +67,7 @@ def process_examples(examples_dir: Path, models_dir: Path = None) -> list[tuple[
 
     # Find all Python files in examples (excluding __init__.py, __pycache__)
     example_files = sorted(
-        f for f in examples_dir.glob("*.py")
-        if not f.name.startswith("_")
+        f for f in examples_dir.glob("*.py") if not f.name.startswith("_")
     )
 
     if not example_files:
@@ -138,10 +139,7 @@ def process_examples(examples_dir: Path, models_dir: Path = None) -> list[tuple[
                 model_data = json.loads(model_json)
 
                 # Create combined data with model and config
-                combined_data = {
-                    "model": model_data,
-                    "config": config
-                }
+                combined_data = {"model": model_data, "config": config}
 
                 # Save to file if debug mode
                 if models_dir:
@@ -161,7 +159,7 @@ async def render_models_to_screenshots(
     models: list[tuple[str, dict]],
     screenshots_dir: Path,
     headless: bool = True,
-    pause: bool = False
+    pause: bool = False,
 ) -> int:
     """
     Render models to PNG screenshots.
@@ -267,10 +265,10 @@ async def render_models_to_screenshots(
                         target: viewer.getCameraTarget(),
                         zoom: viewer.getCameraZoom()
                     })""")
-                    print(f"  position: {camera_state['position']}")
-                    print(f"  quaternion: {camera_state['quaternion']}")
-                    print(f"  target: {camera_state['target']}")
-                    print(f"  zoom: {camera_state['zoom']}")
+                    print(f"  'position': {camera_state['position']},")
+                    print(f"  'quaternion': {camera_state['quaternion']},")
+                    print(f"  'target': {camera_state['target']},")
+                    print(f"  'zoom': {camera_state['zoom']},")
 
                 # Get image using viewer's getImage method
                 data_url = await page.evaluate(
@@ -319,11 +317,10 @@ def run(
 
     # Render models to screenshots
     print("\n=== Rendering models to screenshots ===")
-    fail_count = asyncio.run(render_models_to_screenshots(
-        models,
-        screenshots_dir,
-        headless=headless,
-        pause=pause
-    ))
+    fail_count = asyncio.run(
+        render_models_to_screenshots(
+            models, screenshots_dir, headless=headless, pause=pause
+        )
+    )
     if fail_count > 0:
         sys.exit(1)
