@@ -41,54 +41,45 @@ python -m tcv_screenshots -d examples -o screenshots
 
 ## Writing Examples
 
-Create a Python file with a `main()` function that returns a CAD model:
+Create a Python file with a `main()` function that uses `save_model` and returns `get_saved_models()`:
 
 ```python
 from build123d import *
 
+model = Box(10, 20, 30)
+
 def main():
-    return Box(10, 20, 30)
-```
+    from tcv_screenshots import save_model, get_saved_models
 
-### Custom Config (Optional)
-
-To override defaults, return `(model, config)`:
-
-```python
-def main():
-    model = Box(10, 20, 30)
-    config = {
-        "cadWidth": 800,
-        "height": 600,
-        "metalness": 0.8,
-        "tab": "clip",
-    }
-    return model, config
+    save_model(model, "box", {"cadWidth": 800, "height": 600})
+    return get_saved_models()
 ```
 
 ### Multiple Models per Example
 
-For incremental examples that need screenshots at different stages, use `save_model`:
+For incremental examples that need screenshots at different stages:
 
 ```python
 from build123d import *
-from tcv_screenshots import save_model, get_saved_models
-
-config = {"cadWidth": 500, "height": 375}
 
 # Step 1: Create base box
 box = Box(10, 10, 10)
-save_model(box, "step1_box", config)
 
 # Step 2: Add fillet
 filleted = fillet(box.edges(), 1)
-save_model(filleted, "step2_fillet", config)
 
 # Step 3: Add hole
 final = filleted - Cylinder(2, 10)
-save_model(final, "step3_hole", {**config, "render_edges": False})
 
 def main():
+    from tcv_screenshots import save_model, get_saved_models
+
+    config = {"cadWidth": 500, "height": 375}
+
+    save_model(box, "step1_box", config)
+    save_model(filleted, "step2_fillet", config)
+    save_model(final, "step3_hole", {**config, "render_edges": False})
+
     return get_saved_models()
 ```
 

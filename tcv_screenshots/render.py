@@ -89,6 +89,12 @@ def process_examples(
     for example_path in example_files:
         model_name = example_path.stem
 
+        # Skip files that don't import tcv_screenshots
+        content = example_path.read_text(encoding="utf-8")
+        if "from tcv_screenshots import" not in content and "import tcv_screenshots" not in content:
+            print(f"SKIP {model_name}: no tcv_screenshots import")
+            continue
+
         # Clear any leftover saved models from previous example
         from tcv_screenshots import clear_saved_models
         clear_saved_models()
@@ -110,28 +116,20 @@ def process_examples(
                 print(f"SKIP {model_name}: no main() function, skipping")
                 continue
 
-            # Call main() to get the CAD object(s) and config(s)
+            # Call main() to get saved models
             result = module.main()
 
-            # Normalize result to list of (model, name, config)
-            models_to_process = []
-
-            if isinstance(result, list):
-                # List from get_saved_models(): [(model, name, config), ...]
-                for item in result:
-                    if isinstance(item, tuple) and len(item) == 3:
-                        models_to_process.append(item)
-                    else:
-                        print(f"SKIP {model_name}: invalid list item format")
-            elif isinstance(result, tuple) and len(result) == 2:
-                # Old format: (model, config)
-                models_to_process.append((result[0], model_name, result[1]))
-            elif result is not None:
-                # Single model, no config
-                models_to_process.append((result, model_name, {}))
-            else:
-                print(f"SKIP {model_name}: main() returned None, skipping")
+            # Expect list from get_saved_models(): [(model, name, config), ...]
+            if not isinstance(result, list):
+                print(f"SKIP {model_name}: main() must return get_saved_models()")
                 continue
+
+            models_to_process = []
+            for item in result:
+                if isinstance(item, tuple) and len(item) == 3:
+                    models_to_process.append(item)
+                else:
+                    print(f"SKIP {model_name}: invalid item format in get_saved_models()")
 
             if not models_to_process:
                 print(f"SKIP {model_name}: no models to process")
