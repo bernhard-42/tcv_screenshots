@@ -41,7 +41,7 @@ jobs:
       - name: Generate screenshots
         run: |
           mkdir -p screenshots
-          python -m tcv_screenshots examples/ screenshots/
+          python -m tcv_screenshots -d examples -o screenshots
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4

@@ -2,6 +2,7 @@
 """Entry point for python -m tcv_screenshots."""
 
 import argparse
+import sys
 from pathlib import Path
 
 from .render import run
@@ -12,15 +13,24 @@ def main():
         prog="tcv_screenshots",
         description="Generate screenshots from CAD examples using three-cad-viewer"
     )
-    parser.add_argument(
-        "examples_dir",
+
+    # Input source (mutually exclusive)
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
+        "-f", "--file",
         type=Path,
-        help="Directory containing Python example files with main() functions",
+        help="Single Python example file to process",
     )
-    parser.add_argument(
-        "screenshots_dir",
+    input_group.add_argument(
+        "-d", "--directory",
         type=Path,
-        help="Directory for output PNG screenshots",
+        help="Directory containing Python example files (requires -o)",
+    )
+
+    parser.add_argument(
+        "-o", "--output-folder",
+        type=Path,
+        help="Output directory for PNG screenshots",
     )
     parser.add_argument(
         "--no-headless",
@@ -41,9 +51,21 @@ def main():
 
     args = parser.parse_args()
 
+    # Validate: -d requires -o
+    if args.directory and not args.output_folder:
+        parser.error("-d/--directory requires -o/--output-folder")
+
+    # Determine input files and output directory
+    if args.file:
+        example_files = [args.file.resolve()]
+        screenshots_dir = args.output_folder.resolve() if args.output_folder else Path.cwd()
+    else:
+        example_files = args.directory.resolve()
+        screenshots_dir = args.output_folder.resolve()
+
     run(
-        examples_dir=args.examples_dir.resolve(),
-        screenshots_dir=args.screenshots_dir.resolve(),
+        examples=example_files,
+        screenshots_dir=screenshots_dir,
         headless=not args.no_headless,
         pause=args.pause,
         debug_models_dir=args.debug.resolve() if args.debug else None,

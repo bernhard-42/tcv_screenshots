@@ -45,10 +45,10 @@ def get_package_file(filename: str) -> Path:
 
 
 def process_examples(
-    examples_dir: Path, models_dir: Path = None
+    examples: Path | list[Path], models_dir: Path = None
 ) -> list[tuple[str, dict]]:
     """
-    Run all examples and convert CAD objects to viewer data.
+    Run examples and convert CAD objects to viewer data.
 
     Each example's main() should return either:
     - model: CAD object to render (uses all defaults)
@@ -56,7 +56,7 @@ def process_examples(
     - list of (model, name, config) tuples from get_saved_models()
 
     Args:
-        examples_dir: Directory containing Python example files
+        examples: Directory containing Python example files, or list of file paths
         models_dir: If provided, save JSON files here (debug mode)
 
     Returns:
@@ -65,13 +65,17 @@ def process_examples(
     # Import ocp_tessellate once (heavy import)
     from ocp_tessellate.convert import export_three_cad_viewer_js
 
-    # Find all Python files in examples (excluding __init__.py, __pycache__)
-    example_files = sorted(
-        f for f in examples_dir.glob("*.py") if not f.name.startswith("_")
-    )
+    # Determine example files
+    if isinstance(examples, list):
+        example_files = examples
+    else:
+        # Find all Python files in directory (excluding __init__.py, __pycache__)
+        example_files = sorted(
+            f for f in examples.glob("*.py") if not f.name.startswith("_")
+        )
 
     if not example_files:
-        print(f"No example files found in {examples_dir}")
+        print("No example files found")
         return []
 
     print(f"Found {len(example_files)} example(s) to process")
@@ -94,8 +98,8 @@ def process_examples(
             spec = importlib.util.spec_from_file_location(model_name, example_path)
             module = importlib.util.module_from_spec(spec)
 
-            # Add examples dir to path for relative imports within examples
-            sys.path.insert(0, str(examples_dir))
+            # Add example's directory to path for relative imports
+            sys.path.insert(0, str(example_path.parent))
             try:
                 spec.loader.exec_module(module)
             finally:
@@ -313,7 +317,7 @@ async def render_models_to_screenshots(
 
 
 def run(
-    examples_dir: Path,
+    examples: Path | list[Path],
     screenshots_dir: Path,
     headless: bool = True,
     pause: bool = False,
@@ -322,7 +326,7 @@ def run(
     """Main entry point."""
     # Process examples (optionally save JSON in debug mode)
     print("=== Processing examples ===\n")
-    models = process_examples(examples_dir, debug_models_dir)
+    models = process_examples(examples, debug_models_dir)
 
     if not models:
         print("No models to render")

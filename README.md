@@ -20,16 +20,21 @@ If you use build123d for creating 3D objects, `build123d` neeeds to be installed
 ## Usage
 
 ```bash
-python -m tcv_screenshots examples/ screenshots/ [options]
+# Single file (output to current directory)
+python -m tcv_screenshots -f example.py
+
+# Single file with output folder
+python -m tcv_screenshots -f example.py -o screenshots
+
+# Directory of examples (requires -o)
+python -m tcv_screenshots -d examples -o screenshots
 ```
-
-**Arguments:**
-
-- `examples/` - Directory containing Python example files
-- `screenshots/` - Directory for output PNG screenshots
 
 **Options:**
 
+- `-f, --file FILE` - Single Python example file to process
+- `-d, --directory DIR` - Directory containing Python example files (requires -o)
+- `-o, --output-folder DIR` - Output directory for PNG screenshots
 - `--no-headless` - Show browser window (for debugging)
 - `--pause` - Pause before each screenshot (for debugging)
 - `--debug MODELS_DIR` - Save JSON model files to directory (for debugging)
