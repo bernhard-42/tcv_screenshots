@@ -230,7 +230,7 @@ class Assembly(Compound):
 
             try:
                 ind = labels.index(top)
-            except:
+            except Exception:
                 raise RuntimeError(f"Sub path '{path}' is not valid")
 
             if rest == "":
