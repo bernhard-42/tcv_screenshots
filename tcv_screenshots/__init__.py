@@ -32,3 +32,9 @@ def get_saved_models() -> list:
     models = _saved_models.copy()
     _saved_models = []
     return models
+
+
+def clear_saved_models():
+    """Clear the saved models collector."""
+    global _saved_models
+    _saved_models = []

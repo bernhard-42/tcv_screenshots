@@ -85,6 +85,10 @@ def process_examples(
     for example_path in example_files:
         model_name = example_path.stem
 
+        # Clear any leftover saved models from previous example
+        from tcv_screenshots import clear_saved_models
+        clear_saved_models()
+
         try:
             # Dynamically import the example module
             spec = importlib.util.spec_from_file_location(model_name, example_path)
