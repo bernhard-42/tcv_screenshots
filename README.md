@@ -85,13 +85,46 @@ def main():
 
 This generates `step1_box.png`, `step2_fillet.png`, and `step3_hole.png`.
 
+### Complex Example
+
+```python
+from build123d import *
+
+def create_hexapod():
+    ...
+
+hexapod = create_hexapod()
+
+def main():
+    from tcv_screenshots import save_model, get_saved_models
+
+    config = {
+        "cadWidth": 800,
+        "height": 600,
+        "axes": True,
+        "transparent": True,
+        "clipIntersection": True,
+        "clipSlider0": 0,
+        "clipSlider1": 0,
+        "clipSlider2": 20,
+        "tab": "clip",
+        "position": [465.1, 475.9, 463.2],
+        "quaternion": [0.18, 0.46, 0.80, 0.35],
+        "target": [-100, -93.4, -9.0],
+        "zoom": 1.2,
+    }
+    save_model(hexapod, "hexapod", config)
+
+    return get_saved_models()
+```
+
+![hexapod](screenshots/hexapod.png)
+
 ### Available Config Options
 
 See [VS Code CAD Viewer's show command](https://github.com/bernhard-42/vscode-ocp-cad-viewer/blob/main/docs/show.md)
 
-#### Examples
-
-**Display options:**
+**Example display options:**
 
 - `cadWidth` - Viewport width (default: 1200)
 - `height` - Viewport height (default: 800)
@@ -100,7 +133,7 @@ See [VS Code CAD Viewer's show command](https://github.com/bernhard-42/vscode-oc
 - `glass` - Glass mode (default: True)
 - `tools` - Show tools (default: False)
 
-**Render options:**
+**Example render options:**
 
 - `ambientIntensity` - Ambient light intensity (default: 1.0)
 - `directIntensity` - Direct light intensity (default: 1.1)
@@ -110,7 +143,7 @@ See [VS Code CAD Viewer's show command](https://github.com/bernhard-42/vscode-oc
 - `render_edges` - Show edges (default: True)
 - `render_faces` - Show faces (default: True)
 
-**Viewer options:**
+**Example viewer options:**
 
 - `ortho` - Orthographic projection (default: True)
 - `control` - Control type (default: 'trackball')
