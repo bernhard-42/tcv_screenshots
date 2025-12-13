@@ -160,6 +160,7 @@ async def render_models_to_screenshots(
     screenshots_dir: Path,
     headless: bool = True,
     pause: bool = False,
+    debug: bool = False,
 ) -> int:
     """
     Render models to PNG screenshots.
@@ -169,6 +170,7 @@ async def render_models_to_screenshots(
         screenshots_dir: Directory for output PNG files
         headless: Run browser in headless mode
         pause: Pause before each screenshot for debugging
+        debug: Show browser console debug/info/warning messages
 
     Returns:
         Number of failures (0 = all succeeded)
@@ -210,7 +212,14 @@ async def render_models_to_screenshots(
         page = await browser.new_page()
 
         # Log page console output
-        page.on("console", lambda msg: print(f"[{msg.type}] {msg.text}"))
+        def log_console(msg):
+            if msg.type == "warning" and msg.text.startswith("Unknown option"):
+                return
+            if msg.type in ("debug", "info", "warning", "log") and not debug:
+                return
+            print(f"[{msg.type}] {msg.text}")
+
+        page.on("console", log_console)
         page.on("pageerror", lambda err: print(f"PAGE EXCEPTION: {err}"))
 
         # Load viewer
@@ -319,7 +328,11 @@ def run(
     print("\n=== Rendering models to screenshots ===")
     fail_count = asyncio.run(
         render_models_to_screenshots(
-            models, screenshots_dir, headless=headless, pause=pause
+            models,
+            screenshots_dir,
+            headless=headless,
+            pause=pause,
+            debug=debug_models_dir is not None,
         )
     )
     if fail_count > 0:
