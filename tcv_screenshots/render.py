@@ -141,7 +141,16 @@ def process_examples(
                 config = {**DEFAULT_CONFIG, **(example_config or {})}
 
                 # Export model to JSON string
-                model_json = export_three_cad_viewer_js(None, cad_object)
+                if isinstance(cad_object, tuple|list):
+                    cad_objects = cad_object
+                else:
+                    cad_objects = [cad_object]
+                model_json = export_three_cad_viewer_js(
+                    None, 
+                    *cad_objects, 
+                    colors=config.get("colors"), 
+                    alphas=config.get("alphas")
+                )
                 model_data = json.loads(model_json)
 
                 # Create combined data with model and config
