@@ -16,6 +16,9 @@ import json
 import sys
 from pathlib import Path
 
+from ocp_tessellate.convert import export_three_cad_viewer_js
+from tcv_screenshots import clear_saved_models
+from playwright.async_api import async_playwright
 
 # Default configuration for viewer
 DEFAULT_CONFIG = {
@@ -62,8 +65,6 @@ def process_examples(
     Returns:
         List of (name, data) tuples where data is {model, config}
     """
-    # Import ocp_tessellate once (heavy import)
-    from ocp_tessellate.convert import export_three_cad_viewer_js
 
     # Determine example files
     if isinstance(examples, list):
@@ -96,7 +97,6 @@ def process_examples(
             continue
 
         # Clear any leftover saved models from previous example
-        from tcv_screenshots import clear_saved_models
         clear_saved_models()
 
         try:
@@ -181,7 +181,6 @@ async def render_models_to_screenshots(
     Returns:
         Number of failures (0 = all succeeded)
     """
-    from playwright.async_api import async_playwright
 
     if not models:
         print("No models to render")
