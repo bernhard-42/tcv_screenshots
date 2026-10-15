@@ -37,7 +37,7 @@ python -m tcv_screenshots -d examples -o screenshots
 - `-o, --output-folder DIR` - Output directory for PNG screenshots
 - `--no-headless` - Show browser window (for debugging)
 - `--pause` - Pause before each screenshot (for debugging)
-- `--debug MODELS_DIR` - Save JSON model files to directory (for debugging)
+- `--debug MODELS_DIR` - Save JSON model files to directory, show browser console messages and full rendering errors (for debugging)
 
 ## Writing Examples
 

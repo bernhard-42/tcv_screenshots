@@ -7,6 +7,7 @@ transport (`ScreenshotComms`) and the defaults of a screenshot. A "sent" model
 is not sent anywhere, it is collected and rendered later by `render.py`.
 """
 
+import traceback
 from typing import Any
 
 from ocp_viewer_core.comms import Comms, Session
@@ -76,6 +77,9 @@ viewer = Viewer[dict](Config(Session(ScreenshotComms()), EXCLUDE_KEYS))
 # Model collector, filled by save_model
 _saved_models: list[tuple[str, dict]] = []
 
+# Models save_model could not create, with the traceback of the error
+_failed_models: list[tuple[str, traceback.TracebackException]] = []
+
 
 def save_model(*cad_objs, name: str, **kwargs) -> None:
     """
@@ -89,6 +93,10 @@ def save_model(*cad_objs, name: str, **kwargs) -> None:
         name: Unique name for this screenshot (used as filename)
         kwargs: Any keyword of ocp_vscode's `show`, e.g. `colors`, `alphas`,
             `render_joints`, `reset_camera`, `cad_width`, `height`
+
+    An error while creating the model does not raise: it is recorded (see
+    get_failed_models), so the example goes on and its other models are
+    still rendered. Only a missing name raises, as there is nothing to record.
     """
     if not isinstance(name, str) or name == "":
         raise ValueError("save_model needs a non-empty name")
@@ -97,11 +105,30 @@ def save_model(*cad_objs, name: str, **kwargs) -> None:
     # None: show() drops None keywords and then falls back to its default
     kwargs.setdefault("progress", "")
 
-    message = viewer.show(*cad_objs, **kwargs)
-    if message is None:
-        raise ValueError(f"save_model('{name}'): nothing to render")
+    try:
+        message = viewer.show(*cad_objs, **kwargs)
+        if message is None:
+            raise ValueError(f"save_model('{name}'): nothing to render")
+    except Exception as error:
+        _failed_models.append((name, _traceback_with_caller(error)))
+        return
 
     _saved_models.append((name, message))
+
+
+def _traceback_with_caller(error: Exception) -> traceback.TracebackException:
+    """
+    Traceback of an error caught in save_model, including its callers.
+
+    A caught exception's traceback starts at the frame that caught it, so it
+    would not show the line of the example that called save_model. Prepend
+    the frames above save_model (the last one of extract_stack is save_model
+    itself, which the traceback already starts with).
+    """
+    callers = traceback.extract_stack()[:-2]
+    trace = traceback.TracebackException.from_exception(error)
+    trace.stack = traceback.StackSummary.from_list(callers + list(trace.stack))
+    return trace
 
 
 def get_saved_models() -> list[tuple[str, dict]]:
@@ -116,6 +143,19 @@ def get_saved_models() -> list[tuple[str, dict]]:
     return models
 
 
+def get_failed_models() -> list[tuple[str, traceback.TracebackException]]:
+    """
+    Get all models save_model could not create, and clear that list.
+
+    Returns:
+        List of (name, traceback) tuples
+    """
+    failed = _failed_models.copy()
+    _failed_models.clear()
+    return failed
+
+
 def clear_saved_models() -> None:
-    """Clear the saved models collector."""
+    """Clear the saved models collector and the list of failed models."""
     _saved_models.clear()
+    _failed_models.clear()

@@ -18,13 +18,20 @@ import json
 import struct
 import sys
 import threading
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from textwrap import indent
 
 from ocp_viewer_core.codec import default as json_default
+from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
 
-from tcv_screenshots.host import clear_saved_models
+from tcv_screenshots.host import (
+    clear_saved_models,
+    get_failed_models,
+    get_saved_models,
+)
 
 # Seconds to wait for the viewer to deliver an image of a loaded model
 IMAGE_TIMEOUT = 30.0
@@ -137,21 +144,68 @@ def png_size(image_bytes: bytes) -> tuple[int, int]:
     return width, height
 
 
+def format_traceback(trace: traceback.TracebackException, example_path: Path) -> str:
+    """
+    Traceback of an error in an example, starting at the example's own code.
+
+    The frames above it belong to the runner (this module, importlib) and
+    would only bury the relevant part. A traceback without any frame of the
+    example, e.g. of a SyntaxError, keeps none of them: the error message
+    itself names file and line then.
+    """
+    frames = list(trace.stack)
+    first = len(frames)
+    for i, frame in enumerate(frames):
+        if frame.filename == str(example_path):
+            first = i
+            break
+    trace.stack = traceback.StackSummary.from_list(frames[first:])
+    return indent("".join(trace.format()).rstrip("\n"), "    ")
+
+
+def report_failure(
+    name: str, trace: traceback.TracebackException, example_path: Path
+) -> None:
+    """Print a FAILURE line with the error, followed by its traceback."""
+    summary = list(trace.format_exception_only())[-1].strip()
+    print(f"FAILURE {name}: {summary}")
+    print(format_traceback(trace, example_path))
+
+
+def import_example(example_path: Path):
+    """Import an example file as a module, running its top level code."""
+    spec = importlib.util.spec_from_file_location(example_path.stem, example_path)
+    module = importlib.util.module_from_spec(spec)
+
+    # Add example's directory to path for relative imports
+    sys.path.insert(0, str(example_path.parent))
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.pop(0)
+    return module
+
+
 def process_examples(
     examples: Path | list[Path], models_dir: Path = None
-) -> list[tuple[str, dict]]:
+) -> tuple[list[tuple[str, dict]], int]:
     """
     Run examples and collect their saved models.
 
     Each example's main() must return get_saved_models(), i.e. a list of
     (name, message) tuples created by save_model().
 
+    Errors are handled per model where possible: a failing save_model() call
+    fails only its own model, and the models an example saved before raising
+    an error are still returned.
+
     Args:
         examples: Directory containing Python example files, or list of file paths
         models_dir: If provided, save JSON files here (debug mode)
 
     Returns:
-        List of (name, message) tuples, message being ocp-viewer-core's data message
+        List of (name, message) tuples, message being ocp-viewer-core's data
+        message, and the number of failures
     """
 
     # Determine example files
@@ -165,7 +219,7 @@ def process_examples(
 
     if len(example_files) == 0:
         print("No example files found")
-        return []
+        return [], 0
 
     print(f"Found {len(example_files)} example(s) to process")
 
@@ -174,6 +228,7 @@ def process_examples(
         models_dir.mkdir(parents=True, exist_ok=True)
 
     processed_models = []
+    fail_count = 0
 
     for example_path in example_files:
         model_name = example_path.stem
@@ -187,17 +242,9 @@ def process_examples(
         # Clear models a previous example saved but never returned
         clear_saved_models()
 
+        error = None
         try:
-            # Dynamically import the example module
-            spec = importlib.util.spec_from_file_location(model_name, example_path)
-            module = importlib.util.module_from_spec(spec)
-
-            # Add example's directory to path for relative imports
-            sys.path.insert(0, str(example_path.parent))
-            try:
-                spec.loader.exec_module(module)
-            finally:
-                sys.path.pop(0)
+            module = import_example(example_path)
 
             # Check for main() function
             if not hasattr(module, "main"):
@@ -206,43 +253,88 @@ def process_examples(
 
             # Call main() to get saved models
             result = module.main()
+        except Exception as e:
+            error = e
+            # The models saved before the error are still rendered
+            result = get_saved_models()
 
-            # Expect list from get_saved_models(): [(name, message), ...]
-            if not isinstance(result, list):
-                print(f"SKIP {model_name}: main() must return get_saved_models()")
-                continue
+        # save_model() records its errors instead of raising them, so the
+        # example went on after them
+        for output_name, trace in get_failed_models():
+            report_failure(output_name, trace, example_path)
+            fail_count += 1
 
-            models_to_process = []
-            for item in result:
-                if (
-                    isinstance(item, tuple)
-                    and len(item) == 2
-                    and isinstance(item[0], str)
-                    and isinstance(item[1], dict)
-                ):
-                    models_to_process.append(item)
-                else:
-                    print(f"SKIP {model_name}: invalid item format in get_saved_models()")
+        if error is not None:
+            trace = traceback.TracebackException.from_exception(error)
+            report_failure(model_name, trace, example_path)
+            fail_count += 1
 
-            if len(models_to_process) == 0:
+        # Expect list from get_saved_models(): [(name, message), ...]
+        if not isinstance(result, list):
+            print(
+                f"FAILURE {model_name}: main() must return get_saved_models(), "
+                f"got {type(result).__name__}"
+            )
+            fail_count += 1
+            continue
+
+        models_to_process = []
+        for item in result:
+            if (
+                isinstance(item, tuple)
+                and len(item) == 2
+                and isinstance(item[0], str)
+                and isinstance(item[1], dict)
+            ):
+                models_to_process.append(item)
+            else:
+                print(
+                    f"FAILURE {model_name}: invalid item in get_saved_models(): "
+                    f"{item!r:.80}"
+                )
+                fail_count += 1
+
+        if len(models_to_process) == 0:
+            if error is None:
                 print(f"SKIP {model_name}: no models to process")
-                continue
+            continue
 
-            for output_name, message in models_to_process:
-                # Save to file if debug mode
-                if models_dir is not None:
-                    output_path = models_dir / f"{output_name}.json"
+        for output_name, message in models_to_process:
+            # Save to file if debug mode
+            if models_dir is not None:
+                output_path = models_dir / f"{output_name}.json"
+                try:
                     output_path.write_text(
                         json.dumps(message, default=json_default), encoding="utf-8"
                     )
-                    print(f"OK {output_name}.json")
+                except Exception as e:
+                    trace = traceback.TracebackException.from_exception(e)
+                    report_failure(output_name, trace, example_path)
+                    fail_count += 1
+                    continue
+                print(f"OK {output_name}.json")
 
-                processed_models.append((output_name, message))
+            processed_models.append((output_name, message))
 
-        except Exception as e:
-            print(f"FAILURE {model_name}: {e}")
+    return processed_models, fail_count
 
-    return processed_models
+
+def describe_render_error(error: Exception, debug: bool) -> str:
+    """
+    Message of an error while rendering a model.
+
+    When the browser dies, Playwright appends the browser's whole log to the
+    message, and JavaScript errors bring their stack. Unless debug is set,
+    keep only the first line.
+    """
+    message = str(error).strip()
+    if debug or not isinstance(error, PlaywrightError):
+        return message
+
+    lines = message.splitlines()
+    if len(lines) <= 1:
+        return message
+    return f"{lines[0]} [{len(lines) - 1} more lines with --debug]"
 
 
 async def launch_viewer(playwright, viewer_url: str, headless: bool, debug: bool):
@@ -356,8 +448,11 @@ async def render_models_to_screenshots(
             try:
                 browser, page = await launch_viewer(p, viewer_url, headless, debug)
             except Exception as e:
-                print(f"Error: Viewer failed to initialize: {e}")
-                return 1
+                print(
+                    "Error: Viewer failed to initialize: "
+                    f"{describe_render_error(e, debug)}"
+                )
+                return len(models)
 
             restart = False
 
@@ -377,7 +472,10 @@ async def render_models_to_screenshots(
                             p, viewer_url, headless, debug
                         )
                     except Exception as e:
-                        print(f"Error: Viewer failed to restart: {e}")
+                        print(
+                            "Error: Viewer failed to restart: "
+                            f"{describe_render_error(e, debug)}"
+                        )
                         fail_count += len(models) - index
                         break
                     restart = False
@@ -391,7 +489,10 @@ async def render_models_to_screenshots(
                             "window.viewerLoaded === true", timeout=10000
                         )
                     except Exception as e:
-                        print(f"FAILURE {model_name}: reloading viewer: {e}")
+                        print(
+                            f"FAILURE {model_name}: reloading viewer: "
+                            f"{describe_render_error(e, debug)}"
+                        )
                         fail_count += 1
                         restart = True
                         continue
@@ -434,7 +535,9 @@ async def render_models_to_screenshots(
                     success_count += 1
 
                 except Exception as e:
-                    print(f"FAILURE {model_name}: {e}")
+                    print(f"FAILURE {model_name}: {describe_render_error(e, debug)}")
+                    if debug:
+                        print(indent(traceback.format_exc().rstrip("\n"), "    "))
                     fail_count += 1
                     restart = True
 
@@ -453,25 +556,33 @@ def run(
     pause: bool = False,
     debug_models_dir: Path = None,
 ):
-    """Main entry point."""
+    """
+    Main entry point.
+
+    Exits with status 1 if any example or model failed, in processing or in
+    rendering, so that a CI job fails.
+    """
     # Process examples (optionally save JSON in debug mode)
     print("=== Processing examples ===\n")
-    models = process_examples(examples, debug_models_dir)
+    models, process_fail_count = process_examples(examples, debug_models_dir)
 
+    render_fail_count = 0
     if len(models) == 0:
         print("No models to render")
-        return
-
-    # Render models to screenshots
-    print("\n=== Rendering models to screenshots ===")
-    fail_count = asyncio.run(
-        render_models_to_screenshots(
-            models,
-            screenshots_dir,
-            headless=headless,
-            pause=pause,
-            debug=debug_models_dir is not None,
+    else:
+        # Render models to screenshots
+        print("\n=== Rendering models to screenshots ===")
+        render_fail_count = asyncio.run(
+            render_models_to_screenshots(
+                models,
+                screenshots_dir,
+                headless=headless,
+                pause=pause,
+                debug=debug_models_dir is not None,
+            )
         )
-    )
-    if fail_count > 0:
+
+    if process_fail_count > 0:
+        print(f"\n{process_fail_count} failure(s) while processing examples")
+    if process_fail_count > 0 or render_fail_count > 0:
         sys.exit(1)

@@ -46,7 +46,8 @@ def main():
         "--debug",
         type=Path,
         metavar="MODELS_DIR",
-        help="Save JSON model files to this directory (for debugging)",
+        help="Save JSON model files to this directory, show browser console "
+        "messages and full rendering errors (for debugging)",
     )
 
     args = parser.parse_args()

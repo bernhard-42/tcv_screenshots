@@ -19,6 +19,13 @@ v0.4.0
 - Model data is served to the viewer by a local HTTP server on `127.0.0.1` instead of being passed through Playwright's `page.evaluate`. Large models (e.g. a ~170 MB assembly) no longer crash the browser ([#5](https://github.com/bernhard-42/tcv_screenshots/issues/5))
 - After a failed model the browser is restarted, so one crash no longer fails all remaining models
 
+**Errors**
+
+- A failing example prints its full traceback, starting at the example's own code ([#6](https://github.com/bernhard-42/tcv_screenshots/issues/6))
+- Any failure while processing examples (error at import, error in `main()`, `main()` not returning a list, invalid items) makes the CLI exit with status 1. Before, only rendering failures did, so a CI job stayed green when every example was broken
+- Errors are handled per model: an error in `save_model` fails only that model and the example goes on, and the models an example saved before an error are still rendered
+- When rendering fails in the browser, only the first line of Playwright's message is printed (it can carry the browser's whole log or a JavaScript stack); `--debug` prints all of it plus the Python traceback
+
 **Examples**
 
 - `box_cyl_colors.py` saves `box_cyl_colors.png`; it overwrote `faces_only.png` of `box.py` before
