@@ -51,9 +51,11 @@ model = Box(10, 20, 30)
 def main():
     from tcv_screenshots import save_model, get_saved_models
 
-    save_model(model, "box", {"cadWidth": 800, "height": 600})
+    save_model(model, name="box", cad_width=800, height=600)
     return get_saved_models()
 ```
+
+`save_model(*cad_objs, name, **kwargs)` takes the CAD objects like `show` of [OCP CAD Viewer](https://github.com/bernhard-42/vscode-ocp-cad-viewer), a `name` for the PNG file, and any keyword of `show`, e.g. `colors`, `alphas`, `modes`, `materials`, `render_joints`, `reset_camera` or the `studio_*` options. Both use the same pipeline ([ocp-viewer-core](https://github.com/bernhard-42/ocp-viewer-core)), so the same call gives the same result as in the viewer. Objects with a `material` (e.g. from bd_materials) are rendered with it.
 
 ### Multiple Models per Example
 
@@ -72,13 +74,13 @@ filleted = fillet(box.edges(), 1)
 final = filleted - Cylinder(2, 10)
 
 def main():
-    from tcv_screenshots import save_model, get_saved_models
+    from tcv_screenshots import Render, save_model, get_saved_models
 
-    config = {"cadWidth": 500, "height": 375}
+    size = {"cad_width": 500, "height": 375}
 
-    save_model(box, "step1_box", config)
-    save_model(filleted, "step2_fillet", config)
-    save_model(final, "step3_hole", {**config, "render_edges": False})
+    save_model(box, name="step1_box", **size)
+    save_model(filleted, name="step2_fillet", **size)
+    save_model(final, name="step3_hole", modes=[Render.FACES], **size)
 
     return get_saved_models()
 ```
@@ -98,58 +100,52 @@ hexapod = create_hexapod()
 def main():
     from tcv_screenshots import save_model, get_saved_models
 
-    config = {
-        "cadWidth": 800,
-        "height": 600,
-        "axes": True,
-        "transparent": True,
-        "clipIntersection": True,
-        "clipSlider0": 0,
-        "clipSlider1": 0,
-        "clipSlider2": 20,
-        "tab": "clip",
-        "position": [465.1, 475.9, 463.2],
-        "quaternion": [0.18, 0.46, 0.80, 0.35],
-        "target": [-100, -93.4, -9.0],
-        "zoom": 1.2,
-    }
-    save_model(hexapod, "hexapod", config)
+    save_model(
+        hexapod,
+        name="hexapod",
+        cad_width=800,
+        height=600,
+        axes=True,
+        transparent=True,
+        clip_intersection=True,
+        clip_slider_0=0,
+        clip_slider_1=0,
+        clip_slider_2=20,
+        tab="clip",
+        position=[465.1, 475.9, 463.2],
+        quaternion=[0.18, 0.46, 0.80, 0.35],
+        target=[-100, -93.4, -9.0],
+        zoom=1.2,
+    )
 
     return get_saved_models()
 ```
 
 ![hexapod](screenshots/hexapod.png)
 
-### Available Config Options
+### Available Options
 
-See [VS Code CAD Viewer's show command](https://github.com/bernhard-42/vscode-ocp-cad-viewer/blob/main/docs/show.md)
+Every keyword of `show`, see [OCP CAD Viewer's show command](https://github.com/bernhard-42/vscode-ocp-cad-viewer/blob/main/docs/show.md). The enums used there (`Camera`, `Collapse`, `Render`, `UiTab`, `Studio*`, ...) can be imported from `tcv_screenshots`. `port`, `viewer`, `anchor` and `pinning` address a viewer window and are ignored with a warning.
 
-**Example display options:**
+**Defaults of a screenshot** (override them with the keyword of the same name):
 
-- `cadWidth` - Viewport width (default: 1200)
-- `height` - Viewport height (default: 800)
-- `treeWidth` - Tree panel width (default: 0)
+- `cad_width` - Image width (default: 1200, minimum 450)
+- `height` - Image height (default: 800)
 - `theme` - 'light' or 'dark' (default: 'light')
 - `glass` - Glass mode (default: True)
 - `tools` - Show tools (default: False)
-
-**Example render options:**
-
-- `ambientIntensity` - Ambient light intensity (default: 1.0)
-- `directIntensity` - Direct light intensity (default: 1.1)
+- `ambient_intensity` - Ambient light intensity (default: 1.0)
+- `direct_intensity` - Direct light intensity (default: 1.1)
 - `metalness` - Material metalness (default: 0.3)
 - `roughness` - Material roughness (default: 0.65)
-- `edgeColor` - Edge color as hex int (default: 0x707070)
-- `render_edges` - Show edges (default: True)
-- `render_faces` - Show faces (default: True)
-
-**Example viewer options:**
-
+- `default_edgecolor` - Edge color (default: '#707070')
 - `ortho` - Orthographic projection (default: True)
-- `control` - Control type (default: 'trackball')
 - `up` - Up axis: 'Z' or 'Y' (default: 'Z')
-- `tab` - Active tab: 'tree', 'clip', 'material'
-- `reset_camera` - Camera view: 'iso', 'front', 'rear', 'left', 'right', 'top', 'bottom'
+- `reset_camera` - Camera view (default: `Camera.RESET`); also 'iso', 'front', 'rear', 'left', 'right', 'top', 'bottom'
+
+Every screenshot starts with a fresh viewer, so no setting carries over from one screenshot to the next.
+
+Use `--no-headless --pause` to adjust the view by hand; the camera values (`position`, `quaternion`, `target`, `zoom`) are printed before each screenshot and can be passed to `save_model`.
 
 ## CI/CD
 

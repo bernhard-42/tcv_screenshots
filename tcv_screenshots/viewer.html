@@ -1,85 +1,145 @@
 <!DOCTYPE html>
 <html>
     <head>
+        <meta charset="utf-8" />
         <style>
             body {
                 margin: 0;
             }
-            #cad_view {
-                width: 100vw;
-                height: 100vh;
-            }
         </style>
-        <link rel="stylesheet" href="./three-cad-viewer.css" />
+        <link rel="stylesheet" href="./static/three-cad-viewer.css" />
     </head>
     <body>
-        <div id="cad_view"></div>
-        <script src="./three-cad-viewer.js"></script>
-        <script>
-            const container = document.getElementById("cad_view");
+        <div id="cad_viewer"></div>
+        <script type="module">
+            import { Viewer, Display, Timer } from "./static/three-cad-viewer.esm.js";
+            import { createPage } from "./static/ocp-viewer-core/index.js";
 
-            let display = null;
-            let viewer = null;
+            // createPage takes the canvas size from the surface it measures,
+            // less what it reserves around the canvas: 20px of width and the
+            // chrome above the canvas (65px assumed until a canvas exists).
+            // The surface reported here is the requested canvas plus that
+            // reserve; render.py checks the size of every captured image
+            // against the request.
+            const reserve = { width: 20, height: 65 };
+            let canvas = { width: 1200, height: 800 };
 
-            // Load model with config from JSON
-            // All config keys are passed through - each component uses what it recognizes
-            window.loadModel = (data) => {
-                const modelData = data.model;
-                const config = data.config;
+            // Screenshots answer through `send`, keyed by the name asked for
+            const pendingImages = new Map();
+            // The viewer's state as reported by the page, camera included
+            const status = {};
 
-                // Initialize display and viewer on first load
-                if (!display) {
-                    display = new CadViewer.Display(container, config);
-                    viewer = new CadViewer.Viewer(display, config, () => {});
+            function send(command, message) {
+                if (command === "screenshot") {
+                    const resolve = pendingImages.get(message.filename);
+                    if (resolve !== undefined) {
+                        pendingImages.delete(message.filename);
+                        resolve(message.data);
+                    }
+                } else if (command === "status") {
+                    Object.assign(status, message);
+                } else if (command === "log") {
+                    // The page's debug lines; shown by tcv_screenshots --debug
+                    console.log(message);
                 }
+            }
 
-                viewer.render(modelData, config, config);
+            const page = createPage({
+                Viewer,
+                Display,
+                Timer,
+                send,
+                theme: "light",
+                overrides: {
+                    display: { treeWidth: 0, glass: true, tools: false, theme: "light" },
+                    viewer: {}
+                },
+                // No window listeners: models arrive by loadModel, and the
+                // size is decided per screenshot, not by the window
+                listen: false,
+                getSize: () => ({
+                    width: canvas.width + reserve.width,
+                    height: canvas.height + reserve.height
+                })
+            });
 
-                // Resize viewer after render (camera must exist first)
-                viewer.resizeCadView(
-                    config.cadWidth,
-                    config.treeWidth,
-                    config.height,
-                    config.glass
-                );
-
-                if (
-                    config.tab &&
-                    ["tree", "clip", "material", "zebra"].includes(config.tab)
-                ) {
-                    viewer.display.selectTabByName(config.tab);
-                    delete config.tab;
+            // Fetch a data message from the local server and show it
+            window.loadModel = async (url) => {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`fetching ${url}: HTTP ${response.status}`);
                 }
-
-                if (
-                    config.reset_camera &&
-                    ["iso", "left", "right", "top", "bottom", "rear", "front"].includes(config.reset_camera)
-                ) {
-                    viewer.display.setView(config.reset_camera);
-                    delete config.reset_camera;
+                const message = await response.json();
+                canvas = { width: message.config.cadWidth, height: message.config.height };
+                page.handleMessage(message);
+                // Before the first canvas exists the page assumes its chrome;
+                // from then on it measures the canvas offset in the container
+                // (same selector as page.js), so reserve exactly that
+                const container = document.getElementById("cad_viewer");
+                const view = container.querySelector(".tcv_cad_view_glass, .tcv_cad_view");
+                if (view !== null) {
+                    const offset = Math.round(
+                        view.getBoundingClientRect().top - container.getBoundingClientRect().top
+                    );
+                    if (offset > 0) {
+                        reserve.height = offset;
+                    }
                 }
-
-                if (config.render_edges === false) {
-                    const g = viewer.nestedGroup.rootGroup.name.replace("|", "/");
-                    viewer.setState(g, [1, 0]);
-                }
-                if (config.render_faces === false) {
-                    const g = viewer.nestedGroup.rootGroup.name.replace("|", "/");
-                    viewer.setState(g, [0, 1]);
-                }
+                // The page builds its Display once and resizes only when told:
+                // without this every screenshot keeps the first one's size
+                page.resize();
             };
 
-            // Remove the previous model. `viewer` is a script-level `let`, so it
-            // is not reachable as `window.viewer` from page.evaluate()
-            window.clearModel = () => {
-                if (viewer !== null) {
-                    viewer.clear();
-                }
-            };
+            // Scale an image down to the requested canvas size. Studio mode
+            // renders supersampled (pixel ratio >= 2, three-cad-viewer
+            // studio-manager.ts), so its capture is a multiple of the canvas
+            // and is meant to be seen downsampled.
+            function toCanvasSize(dataUrl) {
+                return new Promise((resolve, reject) => {
+                    const image = new Image();
+                    image.onload = () => {
+                        const scaleX = image.naturalWidth / canvas.width;
+                        const scaleY = image.naturalHeight / canvas.height;
+                        if (scaleX === 1 && scaleY === 1) {
+                            resolve(dataUrl);
+                            return;
+                        }
+                        if (scaleX !== scaleY || scaleX < 1) {
+                            // Not a supersampled capture: let render.py report it
+                            resolve(dataUrl);
+                            return;
+                        }
+                        const target = document.createElement("canvas");
+                        target.width = canvas.width;
+                        target.height = canvas.height;
+                        const context = target.getContext("2d");
+                        context.imageSmoothingEnabled = true;
+                        context.imageSmoothingQuality = "high";
+                        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+                        resolve(target.toDataURL("image/png"));
+                    };
+                    image.onerror = () => reject(new Error("captured image cannot be decoded"));
+                    image.src = dataUrl;
+                });
+            }
 
-            window.isReady = () => viewer && viewer.ready;
+            // The captured image as data URL, or null while the viewer is not
+            // ready to render
+            window.getImage = (name) =>
+                new Promise((resolve) => {
+                    pendingImages.set(name, resolve);
+                    page.handleMessage({ type: "screenshot", filename: name });
+                }).then((dataUrl) => (dataUrl === null ? null : toCanvasSize(dataUrl)));
 
-            window.getImage = (taskId) => viewer.getImage(taskId);
+            // Camera after user interaction (--pause), to copy into save_model
+            window.getCamera = () => ({
+                position: status.position,
+                quaternion: status.quaternion,
+                target: status.target,
+                zoom: status.zoom
+            });
+
+            window.viewerLoaded = true;
         </script>
     </body>
 </html>

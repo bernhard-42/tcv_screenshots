@@ -381,30 +381,31 @@ hexapod = create_hexapod()
 def main():
     from tcv_screenshots import save_model, get_saved_models
 
-    config = {
-        "cadWidth": 800,
-        "height": 600,
-        "axes": True,
-        "blackEdges": False,
-        "transparent": True,
-        "clipPlaneHelpers": False,
-        "clipObjectColors": False,
-        "clipIntersection": True,
-        "clipSlider0": 0,
-        "clipSlider1": 0,
-        "clipSlider2": 20,
-        "tab": "clip",
+    save_model(
+        hexapod,
+        name="hexapod",
+        cad_width=800,
+        height=600,
+        axes=True,
+        black_edges=False,
+        transparent=True,
+        clip_planes=False,
+        clip_object_colors=False,
+        clip_intersection=True,
+        clip_slider_0=0,
+        clip_slider_1=0,
+        clip_slider_2=20,
+        tab="clip",
         # use --no-headless --pause to adjust and the get these values
-        "position": [465.13821536663306, 475.87160219808436, 463.221708753305],
-        "quaternion": [
+        position=[465.13821536663306, 475.87160219808436, 463.221708753305],
+        quaternion=[
             0.1795110353896342,
             0.4627140704405929,
             0.7956023699625785,
             0.3474022828070767,
         ],
-        "target": [-100, -93.37442992154989, -9.027548509050252],
-        "zoom": 1.2,
-    }
-    save_model(hexapod, "hexapod", config)
+        target=[-100, -93.37442992154989, -9.027548509050252],
+        zoom=1.2,
+    )
 
     return get_saved_models()

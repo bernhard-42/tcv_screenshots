@@ -2,8 +2,9 @@
 """
 Headless CAD model renderer.
 
-1. Runs all examples in examples/ folder (each must have a main() returning model or (model, config))
-2. Renders all models to PNG screenshots
+1. Runs all examples in examples/ folder (each must have a main() returning
+   get_saved_models())
+2. Renders all saved models to PNG screenshots
 
 Cross-platform: Linux (Intel/ARM), Windows (Intel), macOS (Intel/ARM).
 """
@@ -14,68 +15,75 @@ import contextlib
 import importlib.resources
 import importlib.util
 import json
+import struct
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from ocp_tessellate.convert import export_three_cad_viewer_js
-from tcv_screenshots import clear_saved_models
+from ocp_viewer_core.codec import default as json_default
 from playwright.async_api import async_playwright
 
-# Default configuration for viewer
-DEFAULT_CONFIG = {
-    # Display options
-    "cadWidth": 1200,
-    "height": 800,
-    "treeWidth": 0,
-    "theme": "light",
-    "glass": True,
-    "tools": False,
-    # Render options
-    "ambientIntensity": 1.0,
-    "directIntensity": 1.1,
-    "metalness": 0.3,
-    "roughness": 0.65,
-    "edgeColor": 0x707070,
-    # Viewer options
-    "ortho": True,
-    "control": "trackball",
-    "up": "Z",
+from tcv_screenshots.host import clear_saved_models
+
+# Seconds to wait for the viewer to deliver an image of a loaded model
+IMAGE_TIMEOUT = 30.0
+
+
+def get_package_dir() -> Path:
+    """Directory of the installed package (viewer.html, static/)."""
+    return Path(str(importlib.resources.files("tcv_screenshots")))
+
+
+# Content types of the files the page loads. The JavaScript is ES modules,
+# which a browser only executes when served with a JavaScript content type.
+CONTENT_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
 }
 
 
-def get_package_file(filename: str) -> Path:
-    """Get path to a file bundled with the package."""
-    return importlib.resources.files("tcv_screenshots").joinpath(filename)
+def resolve_viewer_file(url_path: str) -> Path | None:
+    """
+    Map a request path to viewer.html or a file below static/.
 
+    Returns:
+        The file, or None if the path does not name one of them
+    """
+    package_dir = get_package_dir()
+    if url_path == "/viewer.html":
+        return package_dir / "viewer.html"
+    if not url_path.startswith("/static/"):
+        return None
 
-# Viewer files served to the browser, with their content types
-VIEWER_FILES = {
-    "/viewer.html": "text/html; charset=utf-8",
-    "/three-cad-viewer.js": "text/javascript; charset=utf-8",
-    "/three-cad-viewer.css": "text/css; charset=utf-8",
-}
+    static_dir = (package_dir / "static").resolve()
+    candidate = (package_dir / url_path.removeprefix("/")).resolve()
+    # No way out of static/, e.g. by "/static/../render.py"
+    if not candidate.is_relative_to(static_dir) or not candidate.is_file():
+        return None
+    return candidate
 
 
 class ViewerRequestHandler(BaseHTTPRequestHandler):
-    """Serve the viewer files and the model data (/models/<index>)."""
+    """Serve the viewer page, its static files and the models (/models/<index>)."""
 
     def do_GET(self):
-        if self.path in VIEWER_FILES:
-            body = get_package_file(self.path[1:]).read_bytes()
-            content_type = VIEWER_FILES[self.path]
-        elif self.path.startswith("/models/"):
+        if self.path.startswith("/models/"):
             index = self.path.removeprefix("/models/")
             if not index.isdigit() or int(index) >= len(self.server.models):
                 self.send_error(404)
                 return
-            _name, json_data = self.server.models[int(index)]
-            body = json.dumps(json_data).encode("utf-8")
+            _name, message = self.server.models[int(index)]
+            body = json.dumps(message, default=json_default).encode("utf-8")
             content_type = "application/json"
         else:
-            self.send_error(404)
-            return
+            file = resolve_viewer_file(self.path)
+            if file is None or file.suffix not in CONTENT_TYPES:
+                self.send_error(404)
+                return
+            body = file.read_bytes()
+            content_type = CONTENT_TYPES[file.suffix]
 
         self.send_response(200)
         self.send_header("Content-Type", content_type)
@@ -95,6 +103,7 @@ class ViewerServer(ThreadingHTTPServer):
     Model data goes to the page via fetch() instead of page.evaluate():
     Playwright's connection cannot carry large payloads (the browser dies
     on a ~170 MB model), while the page reads them over HTTP without problems.
+    The page's ES modules need HTTP anyway, they do not load from file://.
     """
 
     daemon_threads = True
@@ -120,6 +129,120 @@ def serve_viewer(models: list[tuple[str, dict]]):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def png_size(image_bytes: bytes) -> tuple[int, int]:
+    """Width and height of a PNG, read from its IHDR chunk."""
+    width, height = struct.unpack(">II", image_bytes[16:24])
+    return width, height
+
+
+def process_examples(
+    examples: Path | list[Path], models_dir: Path = None
+) -> list[tuple[str, dict]]:
+    """
+    Run examples and collect their saved models.
+
+    Each example's main() must return get_saved_models(), i.e. a list of
+    (name, message) tuples created by save_model().
+
+    Args:
+        examples: Directory containing Python example files, or list of file paths
+        models_dir: If provided, save JSON files here (debug mode)
+
+    Returns:
+        List of (name, message) tuples, message being ocp-viewer-core's data message
+    """
+
+    # Determine example files
+    if isinstance(examples, list):
+        example_files = examples
+    else:
+        # Find all Python files in directory (excluding __init__.py, __pycache__)
+        example_files = sorted(
+            f for f in examples.glob("*.py") if not f.name.startswith("_")
+        )
+
+    if len(example_files) == 0:
+        print("No example files found")
+        return []
+
+    print(f"Found {len(example_files)} example(s) to process")
+
+    # Ensure models directory exists if saving
+    if models_dir is not None:
+        models_dir.mkdir(parents=True, exist_ok=True)
+
+    processed_models = []
+
+    for example_path in example_files:
+        model_name = example_path.stem
+
+        # Skip files that don't import tcv_screenshots
+        content = example_path.read_text(encoding="utf-8")
+        if "from tcv_screenshots import" not in content and "import tcv_screenshots" not in content:
+            print(f"SKIP {model_name}: no tcv_screenshots import")
+            continue
+
+        # Clear models a previous example saved but never returned
+        clear_saved_models()
+
+        try:
+            # Dynamically import the example module
+            spec = importlib.util.spec_from_file_location(model_name, example_path)
+            module = importlib.util.module_from_spec(spec)
+
+            # Add example's directory to path for relative imports
+            sys.path.insert(0, str(example_path.parent))
+            try:
+                spec.loader.exec_module(module)
+            finally:
+                sys.path.pop(0)
+
+            # Check for main() function
+            if not hasattr(module, "main"):
+                print(f"SKIP {model_name}: no main() function, skipping")
+                continue
+
+            # Call main() to get saved models
+            result = module.main()
+
+            # Expect list from get_saved_models(): [(name, message), ...]
+            if not isinstance(result, list):
+                print(f"SKIP {model_name}: main() must return get_saved_models()")
+                continue
+
+            models_to_process = []
+            for item in result:
+                if (
+                    isinstance(item, tuple)
+                    and len(item) == 2
+                    and isinstance(item[0], str)
+                    and isinstance(item[1], dict)
+                ):
+                    models_to_process.append(item)
+                else:
+                    print(f"SKIP {model_name}: invalid item format in get_saved_models()")
+
+            if len(models_to_process) == 0:
+                print(f"SKIP {model_name}: no models to process")
+                continue
+
+            for output_name, message in models_to_process:
+                # Save to file if debug mode
+                if models_dir is not None:
+                    output_path = models_dir / f"{output_name}.json"
+                    output_path.write_text(
+                        json.dumps(message, default=json_default), encoding="utf-8"
+                    )
+                    print(f"OK {output_name}.json")
+
+                processed_models.append((output_name, message))
+
+        except Exception as e:
+            print(f"FAILURE {model_name}: {e}")
+
+    return processed_models
 
 
 async def launch_viewer(playwright, viewer_url: str, headless: bool, debug: bool):
@@ -164,13 +287,10 @@ async def launch_viewer(playwright, viewer_url: str, headless: bool, debug: bool
     page.on("console", log_console)
     page.on("pageerror", lambda err: print(f"PAGE EXCEPTION: {err}"))
 
-    # Load viewer and wait for it to initialize
+    # Load viewer and wait for its module script to have run
     try:
         await page.goto(viewer_url)
-        await page.wait_for_function(
-            "typeof window.loadModel === 'function'",
-            timeout=10000,
-        )
+        await page.wait_for_function("window.viewerLoaded === true", timeout=10000)
     except Exception:
         await browser.close()
         raise
@@ -178,127 +298,22 @@ async def launch_viewer(playwright, viewer_url: str, headless: bool, debug: bool
     return browser, page
 
 
-def process_examples(
-    examples: Path | list[Path], models_dir: Path = None
-) -> list[tuple[str, dict]]:
+async def capture_image(page, model_name: str) -> bytes:
     """
-    Run examples and convert CAD objects to viewer data.
+    Capture the loaded model as PNG.
 
-    Each example's main() should return either:
-    - model: CAD object to render (uses all defaults)
-    - (model, config): CAD object + dict of config overrides
-    - list of (model, name, config) tuples from get_saved_models()
-
-    Args:
-        examples: Directory containing Python example files, or list of file paths
-        models_dir: If provided, save JSON files here (debug mode)
-
-    Returns:
-        List of (name, data) tuples where data is {model, config}
+    The viewer answers with no image until it is ready to render, so ask again
+    until it delivers one or IMAGE_TIMEOUT has passed.
     """
-
-    # Determine example files
-    if isinstance(examples, list):
-        example_files = examples
-    else:
-        # Find all Python files in directory (excluding __init__.py, __pycache__)
-        example_files = sorted(
-            f for f in examples.glob("*.py") if not f.name.startswith("_")
-        )
-
-    if not example_files:
-        print("No example files found")
-        return []
-
-    print(f"Found {len(example_files)} example(s) to process")
-
-    # Ensure models directory exists if saving
-    if models_dir:
-        models_dir.mkdir(parents=True, exist_ok=True)
-
-    processed_models = []
-
-    for example_path in example_files:
-        model_name = example_path.stem
-
-        # Skip files that don't import tcv_screenshots
-        content = example_path.read_text(encoding="utf-8")
-        if "from tcv_screenshots import" not in content and "import tcv_screenshots" not in content:
-            print(f"SKIP {model_name}: no tcv_screenshots import")
-            continue
-
-        # Clear any leftover saved models from previous example
-        clear_saved_models()
-
-        try:
-            # Dynamically import the example module
-            spec = importlib.util.spec_from_file_location(model_name, example_path)
-            module = importlib.util.module_from_spec(spec)
-
-            # Add example's directory to path for relative imports
-            sys.path.insert(0, str(example_path.parent))
-            try:
-                spec.loader.exec_module(module)
-            finally:
-                sys.path.pop(0)
-
-            # Check for main() function
-            if not hasattr(module, "main"):
-                print(f"SKIP {model_name}: no main() function, skipping")
-                continue
-
-            # Call main() to get saved models
-            result = module.main()
-
-            # Expect list from get_saved_models(): [(model, name, config), ...]
-            if not isinstance(result, list):
-                print(f"SKIP {model_name}: main() must return get_saved_models()")
-                continue
-
-            models_to_process = []
-            for item in result:
-                if isinstance(item, tuple) and len(item) == 3:
-                    models_to_process.append(item)
-                else:
-                    print(f"SKIP {model_name}: invalid item format in get_saved_models()")
-
-            if not models_to_process:
-                print(f"SKIP {model_name}: no models to process")
-                continue
-
-            # Process each model
-            for cad_object, output_name, example_config in models_to_process:
-                # Merge defaults with example overrides
-                config = {**DEFAULT_CONFIG, **(example_config or {})}
-
-                # Export model to JSON string
-                if isinstance(cad_object, tuple|list):
-                    cad_objects = cad_object
-                else:
-                    cad_objects = [cad_object]
-                model_json = export_three_cad_viewer_js(
-                    None, 
-                    *cad_objects, 
-                    colors=config.get("colors"), 
-                    alphas=config.get("alphas")
-                )
-                model_data = json.loads(model_json)
-
-                # Create combined data with model and config
-                combined_data = {"model": model_data, "config": config}
-
-                # Save to file if debug mode
-                if models_dir:
-                    output_path = models_dir / f"{output_name}.json"
-                    output_path.write_text(json.dumps(combined_data), encoding="utf-8")
-                    print(f"OK {output_name}.json")
-
-                processed_models.append((output_name, combined_data))
-
-        except Exception as e:
-            print(f"FAILURE {model_name}: {e}")
-
-    return processed_models
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + IMAGE_TIMEOUT
+    while True:
+        data_url = await page.evaluate("(name) => window.getImage(name)", model_name)
+        if isinstance(data_url, str) and data_url != "":
+            return base64.b64decode(data_url.split(",", 1)[1])
+        if loop.time() > deadline:
+            raise RuntimeError(f"no image after {IMAGE_TIMEOUT:.0f}s")
+        await asyncio.sleep(0.25)
 
 
 async def render_models_to_screenshots(
@@ -312,7 +327,7 @@ async def render_models_to_screenshots(
     Render models to PNG screenshots.
 
     Args:
-        models: List of (name, data) tuples where data is {model, config}
+        models: List of (name, message) tuples from process_examples
         screenshots_dir: Directory for output PNG files
         headless: Run browser in headless mode
         pause: Pause before each screenshot for debugging
@@ -322,7 +337,7 @@ async def render_models_to_screenshots(
         Number of failures (0 = all succeeded)
     """
 
-    if not models:
+    if len(models) == 0:
         print("No models to render")
         return 0
 
@@ -347,7 +362,7 @@ async def render_models_to_screenshots(
             restart = False
 
             # Process each model
-            for index, (model_name, json_data) in enumerate(models):
+            for index, (model_name, message) in enumerate(models):
                 output_path = screenshots_dir / f"{model_name}.png"
 
                 # After a failure the page or browser may be dead (crash) or the
@@ -366,64 +381,53 @@ async def render_models_to_screenshots(
                         fail_count += len(models) - index
                         break
                     restart = False
+                elif index > 0:
+                    # A fresh page per screenshot: the viewer keeps its state
+                    # across models (clipping, transparency, tab, camera), so
+                    # without this a screenshot would depend on the ones before
+                    try:
+                        await page.reload()
+                        await page.wait_for_function(
+                            "window.viewerLoaded === true", timeout=10000
+                        )
+                    except Exception as e:
+                        print(f"FAILURE {model_name}: reloading viewer: {e}")
+                        fail_count += 1
+                        restart = True
+                        continue
 
                 try:
-                    # Set viewport to match config dimensions
-                    config = json_data.get("config", {})
-                    width = config.get("cadWidth", DEFAULT_CONFIG["cadWidth"])
-                    height = config.get("height", DEFAULT_CONFIG["height"])
+                    config = message["config"]
+                    width = config["cadWidth"]
+                    height = config["height"]
                     await page.set_viewport_size({"width": width, "height": height})
 
-                    # Fetch model from the local server, clear previous model and
-                    # load the new one
+                    # The page fetches the model from the local server
                     await page.evaluate(
-                        """async (url) => {
-                            const response = await fetch(url);
-                            if (!response.ok) {
-                                throw new Error(`fetching ${url}: HTTP ${response.status}`);
-                            }
-                            const data = await response.json();
-                            window.clearModel();
-                            window.loadModel(data);
-                        }""",
-                        f"/models/{index}",
+                        "(url) => window.loadModel(url)", f"/models/{index}"
                     )
 
-                    # Wait for viewer to be ready
-                    await page.wait_for_function("window.isReady()", timeout=30000)
-
-                    # Give extra time for rendering to complete
+                    # Give time for rendering to complete
                     await asyncio.sleep(0.5)
 
                     # Wait for user input if pause mode
                     if pause:
                         input(f"  {model_name}: Press Enter to take screenshot...")
                         # Print camera state after user interaction
-                        camera_state = await page.evaluate("""() => ({
-                            position: viewer.getCameraPosition(),
-                            quaternion: viewer.getCameraQuaternion(),
-                            target: viewer.getCameraTarget(),
-                            zoom: viewer.getCameraZoom()
-                        })""")
+                        camera_state = await page.evaluate("() => window.getCamera()")
                         print(f"  'position': {camera_state['position']},")
                         print(f"  'quaternion': {camera_state['quaternion']},")
                         print(f"  'target': {camera_state['target']},")
                         print(f"  'zoom': {camera_state['zoom']},")
 
-                    # Get image using viewer's getImage method
-                    data_url = await page.evaluate(
-                        """async () => {
-                            const result = await window.getImage('screenshot');
-                            return result.dataUrl;
-                        }"""
-                    )
+                    image_bytes = await capture_image(page, model_name)
 
-                    if not data_url:
-                        raise RuntimeError("Failed to capture image")
+                    actual = png_size(image_bytes)
+                    if actual != (width, height):
+                        raise RuntimeError(
+                            f"image is {actual[0]}x{actual[1]}, expected {width}x{height}"
+                        )
 
-                    # Convert data URL to bytes and save
-                    base64_data = data_url.split(",", 1)[1]
-                    image_bytes = base64.b64decode(base64_data)
                     output_path.write_bytes(image_bytes)
 
                     print(f"OK {model_name}.png")
@@ -454,7 +458,7 @@ def run(
     print("=== Processing examples ===\n")
     models = process_examples(examples, debug_models_dir)
 
-    if not models:
+    if len(models) == 0:
         print("No models to render")
         return
 

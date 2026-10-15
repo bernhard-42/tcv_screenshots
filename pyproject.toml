@@ -10,7 +10,11 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 authors = [{ name = "Bernhard Walter" }]
-dependencies = ["playwright>=1.40.0", "ocp_tessellate"]
+dependencies = [
+    "playwright>=1.40.0",
+    # major.minor must match the bundled ocp-viewer-core JavaScript (1.1.x)
+    "ocp-viewer-core>=1.1.2,<1.2.0",
+]
 
 [project.optional-dependencies]
 dev = ["build"]
@@ -19,4 +23,4 @@ dev = ["build"]
 include = ["tcv_screenshots*"]
 
 [tool.setuptools.package-data]
-tcv_screenshots = ["*.html", "*.js", "*.css"]
+tcv_screenshots = ["*.html", "static/*.js", "static/*.css", "static/ocp-viewer-core/*.js"]
