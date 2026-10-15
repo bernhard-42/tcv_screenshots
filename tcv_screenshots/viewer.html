@@ -69,6 +69,14 @@
                 }
             };
 
+            // Remove the previous model. `viewer` is a script-level `let`, so it
+            // is not reachable as `window.viewer` from page.evaluate()
+            window.clearModel = () => {
+                if (viewer !== null) {
+                    viewer.clear();
+                }
+            };
+
             window.isReady = () => viewer && viewer.ready;
 
             window.getImage = (taskId) => viewer.getImage(taskId);

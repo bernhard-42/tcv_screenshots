@@ -10,10 +10,13 @@ Cross-platform: Linux (Intel/ARM), Windows (Intel), macOS (Intel/ARM).
 
 import asyncio
 import base64
+import contextlib
 import importlib.resources
 import importlib.util
 import json
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from ocp_tessellate.convert import export_three_cad_viewer_js
@@ -45,6 +48,134 @@ DEFAULT_CONFIG = {
 def get_package_file(filename: str) -> Path:
     """Get path to a file bundled with the package."""
     return importlib.resources.files("tcv_screenshots").joinpath(filename)
+
+
+# Viewer files served to the browser, with their content types
+VIEWER_FILES = {
+    "/viewer.html": "text/html; charset=utf-8",
+    "/three-cad-viewer.js": "text/javascript; charset=utf-8",
+    "/three-cad-viewer.css": "text/css; charset=utf-8",
+}
+
+
+class ViewerRequestHandler(BaseHTTPRequestHandler):
+    """Serve the viewer files and the model data (/models/<index>)."""
+
+    def do_GET(self):
+        if self.path in VIEWER_FILES:
+            body = get_package_file(self.path[1:]).read_bytes()
+            content_type = VIEWER_FILES[self.path]
+        elif self.path.startswith("/models/"):
+            index = self.path.removeprefix("/models/")
+            if not index.isdigit() or int(index) >= len(self.server.models):
+                self.send_error(404)
+                return
+            _name, json_data = self.server.models[int(index)]
+            body = json.dumps(json_data).encode("utf-8")
+            content_type = "application/json"
+        else:
+            self.send_error(404)
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        # Keep the console free of one line per request
+        pass
+
+
+class ViewerServer(ThreadingHTTPServer):
+    """
+    HTTP server on localhost that hands viewer and models to the browser.
+
+    Model data goes to the page via fetch() instead of page.evaluate():
+    Playwright's connection cannot carry large payloads (the browser dies
+    on a ~170 MB model), while the page reads them over HTTP without problems.
+    """
+
+    daemon_threads = True
+
+    def __init__(self, models: list[tuple[str, dict]]):
+        # Port 0: let the OS pick a free port
+        super().__init__(("127.0.0.1", 0), ViewerRequestHandler)
+        self.models = models
+
+    @property
+    def base_url(self) -> str:
+        return f"http://127.0.0.1:{self.server_address[1]}"
+
+
+@contextlib.contextmanager
+def serve_viewer(models: list[tuple[str, dict]]):
+    """Run a ViewerServer in a background thread for the duration of the block."""
+    server = ViewerServer(models)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+async def launch_viewer(playwright, viewer_url: str, headless: bool, debug: bool):
+    """
+    Launch a browser and open the viewer page in it.
+
+    Args:
+        playwright: The running Playwright instance
+        viewer_url: URL of viewer.html
+        headless: Run browser in headless mode
+        debug: Show browser console debug/info/warning messages
+
+    Returns:
+        (browser, page) with the viewer initialized
+    """
+    # Launch browser with WebGL support
+    browser = await playwright.chromium.launch(
+        headless=headless,
+        args=[
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--use-gl=angle",
+            "--use-angle=swiftshader",
+            "--enable-webgl",
+            "--ignore-gpu-blocklist",
+            "--enable-unsafe-swiftshader",
+        ],
+    )
+
+    # Create page (viewport will be set per-model based on config)
+    page = await browser.new_page()
+
+    # Log page console output
+    def log_console(msg):
+        if msg.type == "warning" and msg.text.startswith("Unknown option"):
+            return
+        if msg.type in ("debug", "info", "warning", "log") and not debug:
+            return
+        print(f"[{msg.type}] {msg.text}")
+
+    page.on("console", log_console)
+    page.on("pageerror", lambda err: print(f"PAGE EXCEPTION: {err}"))
+
+    # Load viewer and wait for it to initialize
+    try:
+        await page.goto(viewer_url)
+        await page.wait_for_function(
+            "typeof window.loadModel === 'function'",
+            timeout=10000,
+        )
+    except Exception:
+        await browser.close()
+        raise
+
+    return browser, page
 
 
 def process_examples(
@@ -200,123 +331,112 @@ async def render_models_to_screenshots(
     # Ensure output directory exists
     screenshots_dir.mkdir(parents=True, exist_ok=True)
 
-    # Get viewer.html from package
-    viewer_path = get_package_file("viewer.html")
-
     success_count = 0
     fail_count = 0
 
-    async with async_playwright() as p:
-        # Launch browser with WebGL support
-        browser = await p.chromium.launch(
-            headless=headless,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--use-gl=angle",
-                "--use-angle=swiftshader",
-                "--enable-webgl",
-                "--ignore-gpu-blocklist",
-                "--enable-unsafe-swiftshader",
-            ],
-        )
+    with serve_viewer(models) as server:
+        viewer_url = f"{server.base_url}/viewer.html"
 
-        # Create page (viewport will be set per-model based on config)
-        page = await browser.new_page()
-
-        # Log page console output
-        def log_console(msg):
-            if msg.type == "warning" and msg.text.startswith("Unknown option"):
-                return
-            if msg.type in ("debug", "info", "warning", "log") and not debug:
-                return
-            print(f"[{msg.type}] {msg.text}")
-
-        page.on("console", log_console)
-        page.on("pageerror", lambda err: print(f"PAGE EXCEPTION: {err}"))
-
-        # Load viewer
-        await page.goto(f"file://{viewer_path}")
-
-        # Wait for viewer to initialize
-        try:
-            await page.wait_for_function(
-                "typeof window.loadModel === 'function'",
-                timeout=10000,
-            )
-        except Exception as e:
-            print(f"Error: Viewer failed to initialize: {e}")
-            await browser.close()
-            return 1
-
-        # Process each model
-        for model_name, json_data in models:
-            output_path = screenshots_dir / f"{model_name}.png"
-
+        async with async_playwright() as p:
             try:
-                # Set viewport to match config dimensions
-                config = json_data.get("config", {})
-                width = config.get("cadWidth", DEFAULT_CONFIG["cadWidth"])
-                height = config.get("height", DEFAULT_CONFIG["height"])
-                await page.set_viewport_size({"width": width, "height": height})
-
-                # Clear previous model and load new one
-                await page.evaluate(
-                    """(data) => {
-                        if (window.viewer && window.viewer.clear) {
-                            window.viewer.clear();
-                        }
-                        window.loadModel(data);
-                    }""",
-                    json_data,
-                )
-
-                # Wait for viewer to be ready
-                await page.wait_for_function("window.isReady()", timeout=30000)
-
-                # Give extra time for rendering to complete
-                await asyncio.sleep(0.5)
-
-                # Wait for user input if pause mode
-                if pause:
-                    input(f"  {model_name}: Press Enter to take screenshot...")
-                    # Print camera state after user interaction
-                    camera_state = await page.evaluate("""() => ({
-                        position: viewer.getCameraPosition(),
-                        quaternion: viewer.getCameraQuaternion(),
-                        target: viewer.getCameraTarget(),
-                        zoom: viewer.getCameraZoom()
-                    })""")
-                    print(f"  'position': {camera_state['position']},")
-                    print(f"  'quaternion': {camera_state['quaternion']},")
-                    print(f"  'target': {camera_state['target']},")
-                    print(f"  'zoom': {camera_state['zoom']},")
-
-                # Get image using viewer's getImage method
-                data_url = await page.evaluate(
-                    """async () => {
-                        const result = await window.getImage('screenshot');
-                        return result.dataUrl;
-                    }"""
-                )
-
-                if not data_url:
-                    raise RuntimeError("Failed to capture image")
-
-                # Convert data URL to bytes and save
-                base64_data = data_url.split(",", 1)[1]
-                image_bytes = base64.b64decode(base64_data)
-                output_path.write_bytes(image_bytes)
-
-                print(f"OK {model_name}.png")
-                success_count += 1
-
+                browser, page = await launch_viewer(p, viewer_url, headless, debug)
             except Exception as e:
-                print(f"FAILURE {model_name}: {e}")
-                fail_count += 1
+                print(f"Error: Viewer failed to initialize: {e}")
+                return 1
 
-        await browser.close()
+            restart = False
+
+            # Process each model
+            for index, (model_name, json_data) in enumerate(models):
+                output_path = screenshots_dir / f"{model_name}.png"
+
+                # After a failure the page or browser may be dead (crash) or the
+                # viewer in a broken state: continue with a fresh browser, otherwise
+                # every remaining model fails as well
+                if restart:
+                    print("Restarting browser after failure")
+                    with contextlib.suppress(Exception):
+                        await browser.close()
+                    try:
+                        browser, page = await launch_viewer(
+                            p, viewer_url, headless, debug
+                        )
+                    except Exception as e:
+                        print(f"Error: Viewer failed to restart: {e}")
+                        fail_count += len(models) - index
+                        break
+                    restart = False
+
+                try:
+                    # Set viewport to match config dimensions
+                    config = json_data.get("config", {})
+                    width = config.get("cadWidth", DEFAULT_CONFIG["cadWidth"])
+                    height = config.get("height", DEFAULT_CONFIG["height"])
+                    await page.set_viewport_size({"width": width, "height": height})
+
+                    # Fetch model from the local server, clear previous model and
+                    # load the new one
+                    await page.evaluate(
+                        """async (url) => {
+                            const response = await fetch(url);
+                            if (!response.ok) {
+                                throw new Error(`fetching ${url}: HTTP ${response.status}`);
+                            }
+                            const data = await response.json();
+                            window.clearModel();
+                            window.loadModel(data);
+                        }""",
+                        f"/models/{index}",
+                    )
+
+                    # Wait for viewer to be ready
+                    await page.wait_for_function("window.isReady()", timeout=30000)
+
+                    # Give extra time for rendering to complete
+                    await asyncio.sleep(0.5)
+
+                    # Wait for user input if pause mode
+                    if pause:
+                        input(f"  {model_name}: Press Enter to take screenshot...")
+                        # Print camera state after user interaction
+                        camera_state = await page.evaluate("""() => ({
+                            position: viewer.getCameraPosition(),
+                            quaternion: viewer.getCameraQuaternion(),
+                            target: viewer.getCameraTarget(),
+                            zoom: viewer.getCameraZoom()
+                        })""")
+                        print(f"  'position': {camera_state['position']},")
+                        print(f"  'quaternion': {camera_state['quaternion']},")
+                        print(f"  'target': {camera_state['target']},")
+                        print(f"  'zoom': {camera_state['zoom']},")
+
+                    # Get image using viewer's getImage method
+                    data_url = await page.evaluate(
+                        """async () => {
+                            const result = await window.getImage('screenshot');
+                            return result.dataUrl;
+                        }"""
+                    )
+
+                    if not data_url:
+                        raise RuntimeError("Failed to capture image")
+
+                    # Convert data URL to bytes and save
+                    base64_data = data_url.split(",", 1)[1]
+                    image_bytes = base64.b64decode(base64_data)
+                    output_path.write_bytes(image_bytes)
+
+                    print(f"OK {model_name}.png")
+                    success_count += 1
+
+                except Exception as e:
+                    print(f"FAILURE {model_name}: {e}")
+                    fail_count += 1
+                    restart = True
+
+            # The browser may already be dead after a failure of the last model
+            with contextlib.suppress(Exception):
+                await browser.close()
 
     print(f"\nDone: {success_count} succeeded, {fail_count} failed")
     return fail_count

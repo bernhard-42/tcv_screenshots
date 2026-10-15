@@ -1,3 +1,15 @@
+v0.4.0
+
+**API Changes**
+
+- `colors` and `alphas` in the config of `save_model` set the colors and transparency of the objects
+
+**Rendering**
+
+- Model data is served to the viewer by a local HTTP server on `127.0.0.1` instead of being passed through Playwright's `page.evaluate`. Large models (e.g. a ~170 MB assembly) no longer crash the browser ([#5](https://github.com/bernhard-42/tcv_screenshots/issues/5))
+- After a failed model the browser is restarted, so one crash no longer fails all remaining models
+- The previous model is now really cleared before the next one is loaded (the old `window.viewer.clear()` call never ran). Rendering a small model after a large one went from minutes to below a second
+
 v0.3.0
 
 **CLI Changes**
