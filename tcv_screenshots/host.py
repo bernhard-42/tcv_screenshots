@@ -7,6 +7,7 @@ transport (`ScreenshotComms`) and the defaults of a screenshot. A "sent" model
 is not sent anywhere, it is collected and rendered later by `render.py`.
 """
 
+import contextlib
 import traceback
 from typing import Any
 
@@ -15,8 +16,8 @@ from ocp_viewer_core.config import Camera, Collapse, Config
 from ocp_viewer_core.show import Viewer
 
 # Defaults of a screenshot, in the keyword names of `show`.
-# They are the host's workspace config: every key here can be overridden
-# per call by the same keyword of `save_model`.
+# They are the host's workspace config: every key here can be overridden by
+# `set_defaults` and per call by the same keyword of `save_model`.
 DEFAULT_CONFIG = {
     # Display options
     "cad_width": 1200,
@@ -66,6 +67,11 @@ class ScreenshotComms(Comms[dict]):
     def send_data(self, data: Any, timeit: bool = False) -> dict:
         return data
 
+    def send_config(self, config: Any, timeit: bool = False) -> None:
+        # `set_defaults` also pushes the settings to a running viewer; a
+        # screenshot has none, the defaults apply from the next save_model on
+        return None
+
     def send_backend(self, data: Any, timeit: bool = False) -> None:
         # `show` hands every model to the measurement backend; a screenshot
         # has none
@@ -73,6 +79,33 @@ class ScreenshotComms(Comms[dict]):
 
 
 viewer = Viewer[dict](Config(Session(ScreenshotComms()), EXCLUDE_KEYS))
+
+# The defaults functions of ocp_vscode, from the same core: `set_defaults`
+# takes the keywords of `show` and applies them to every following save_model,
+# over DEFAULT_CONFIG and under the keywords of a single save_model call
+set_defaults = viewer.config.set_defaults
+get_defaults = viewer.config.get_defaults
+
+
+def reset_defaults() -> None:
+    """Forget everything `set_defaults` was told, back to DEFAULT_CONFIG."""
+    # apply=False: there is no running viewer to send the reset to
+    viewer.config.reset_defaults(apply=False)
+
+
+@contextlib.contextmanager
+def isolated_defaults():
+    """
+    Restore the defaults of `set_defaults` at the end of the block.
+
+    Runs an example with the defaults its caller set, without letting a
+    `set_defaults` call inside the example leak into the next one.
+    """
+    saved = dict(viewer.config.defaults)
+    try:
+        yield
+    finally:
+        viewer.config.defaults = saved
 
 # Model collector, filled by save_model
 _saved_models: list[tuple[str, dict]] = []

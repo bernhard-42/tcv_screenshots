@@ -8,6 +8,8 @@ v0.4.0
 - Objects with a `material` attribute, e.g. from bd_materials, are rendered with it, also in studio mode (`tab="studio"`) ([#7](https://github.com/bernhard-42/tcv_screenshots/issues/7))
 - The option enums of `show` (`Camera`, `Collapse`, `Render`, `UiTab`, `Studio*`, `AnalysisTool`) can be imported from `tcv_screenshots`
 - `get_saved_models()` returns `(name, message)` tuples, message being the data message of ocp-viewer-core
+- Script-driven use without the command line ([#3](https://github.com/bernhard-42/tcv_screenshots/issues/3)): `collect_models(*paths)` runs example files and directories and returns their models, `render_models(models, output_dir)` (or `await render_models_async(...)`) renders them; both return what was written and what failed instead of exiting. `process_examples` and `render_models_to_screenshots` are replaced by them
+- `set_defaults`, `reset_defaults` and `get_defaults` as in OCP CAD Viewer: defaults for all following `save_model` calls, over the screenshot defaults
 
 **Rendering**
 

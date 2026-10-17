@@ -127,7 +127,7 @@ def main():
 
 Every keyword of `show`, see [OCP CAD Viewer's show command](https://github.com/bernhard-42/vscode-ocp-cad-viewer/blob/main/docs/show.md). The enums used there (`Camera`, `Collapse`, `Render`, `UiTab`, `Studio*`, ...) can be imported from `tcv_screenshots`. `port`, `viewer`, `anchor` and `pinning` address a viewer window and are ignored with a warning.
 
-**Defaults of a screenshot** (override them with the keyword of the same name):
+**Defaults of a screenshot** (override them for all following screenshots with `set_defaults(**kwargs)`, or for one screenshot with the keyword of the same name; `reset_defaults()` goes back to these):
 
 - `cad_width` - Image width (default: 1200, minimum 450)
 - `height` - Image height (default: 800)
@@ -147,9 +147,35 @@ Every screenshot starts with a fresh viewer, so no setting carries over from one
 
 Use `--no-headless --pause` to adjust the view by hand; the camera values (`position`, `quaternion`, `target`, `zoom`) are printed before each screenshot and can be passed to `save_model`.
 
+## Scripted Use
+
+The two steps of the command line are functions, for build scripts that need more control:
+
+```python
+from build123d import Box
+from tcv_screenshots import collect_models, get_saved_models, render_models, save_model, set_defaults
+
+# Defaults for every following save_model, the keywords of `show`
+set_defaults(cad_width=1000, height=1000)
+
+# Run example files and directories of examples (each with a main() as above)
+collected = collect_models("examples", "more/extra_example.py")
+
+# Or save models directly, without example files
+save_model(Box(1, 2, 3), name="box")
+
+rendered = render_models(collected.models + get_saved_models(), "screenshots")
+print(rendered.written)                     # the PNG files
+print(collected.failed + rendered.failed)   # names of what failed
+```
+
+- `collect_models(*paths, models_dir=None)` returns a `CollectResult` with `models` and `failed`. Each example runs with the defaults set before the call; a `set_defaults` inside one example does not reach the next. With `models_dir`, every model's JSON is saved there.
+- `render_models(models, output_dir, *, headless=True, pause=False, debug=False)` writes `<output_dir>/<name>.png` and returns a `RenderResult` with `written` and `failed`. In an environment that already runs an event loop (e.g. Jupyter), use `await render_models_async(...)` with the same arguments.
+- Neither function exits: failures are printed, with tracebacks, and returned.
+
 ## CI/CD
 
-`tcv_screenshots` can be used in CI/CD workflows, an example can seen in [.github/workflows/screenshots.yml](.github/workflows/screenshots.yml)
+`tcv_screenshots` can be used in CI/CD workflows, an example can seen in [.github/workflows/screenshots.yml](.github/workflows/screenshots.yml). The command line exits with status 1 if any example or model fails.
 
 ## Development
 

@@ -2,9 +2,11 @@
 """
 Headless CAD model renderer.
 
-1. Runs all examples in examples/ folder (each must have a main() returning
-   get_saved_models())
-2. Renders all saved models to PNG screenshots
+1. collect_models: runs example files (each must have a main() returning
+   get_saved_models()) and collects their models
+2. render_models: renders models to PNG screenshots
+
+`run` combines both for the command line.
 
 Cross-platform: Linux (Intel/ARM), Windows (Intel), macOS (Intel/ARM).
 """
@@ -19,6 +21,7 @@ import struct
 import sys
 import threading
 import traceback
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from textwrap import indent
@@ -31,6 +34,7 @@ from tcv_screenshots.host import (
     clear_saved_models,
     get_failed_models,
     get_saved_models,
+    isolated_defaults,
 )
 
 # Seconds to wait for the viewer to deliver an image of a loaded model
@@ -186,137 +190,192 @@ def import_example(example_path: Path):
     return module
 
 
-def process_examples(
-    examples: Path | list[Path], models_dir: Path = None
-) -> tuple[list[tuple[str, dict]], int]:
-    """
-    Run examples and collect their saved models.
+@dataclass
+class CollectResult:
+    """The models collected from example files, and what failed on the way."""
 
-    Each example's main() must return get_saved_models(), i.e. a list of
+    # (name, message) tuples, message being ocp-viewer-core's data message
+    models: list[tuple[str, dict]] = field(default_factory=list)
+    # Names of the examples and models that failed
+    failed: list[str] = field(default_factory=list)
+
+
+@dataclass
+class RenderResult:
+    """The screenshots written, and the names of the models that failed."""
+
+    written: list[Path] = field(default_factory=list)
+    failed: list[str] = field(default_factory=list)
+
+
+def find_example_files(paths) -> list[Path]:
+    """
+    Expand files and directories to the example files to run.
+
+    A directory stands for its Python files, sorted by name, without the ones
+    starting with "_" (__init__.py, private helpers). A file named twice, e.g.
+    by itself and via its directory, runs once.
+    """
+    example_files = []
+    for path in paths:
+        path = Path(path).resolve()
+        if path.is_dir():
+            candidates = sorted(
+                f for f in path.glob("*.py") if not f.name.startswith("_")
+            )
+        else:
+            candidates = [path]
+        for candidate in candidates:
+            if candidate not in example_files:
+                example_files.append(candidate)
+    return example_files
+
+
+def run_example(example_path: Path, models_dir: Path | None = None) -> CollectResult:
+    """
+    Run one example file and collect the models it saved.
+
+    The example's main() must return get_saved_models(), i.e. a list of
     (name, message) tuples created by save_model().
 
     Errors are handled per model where possible: a failing save_model() call
-    fails only its own model, and the models an example saved before raising
+    fails only its own model, and the models the example saved before raising
     an error are still returned.
 
     Args:
-        examples: Directory containing Python example files, or list of file paths
-        models_dir: If provided, save JSON files here (debug mode)
+        example_path: The Python file to run
+        models_dir: If provided, save each model's JSON here (debug mode)
+    """
+    result = CollectResult()
+    model_name = example_path.stem
+
+    if not example_path.is_file():
+        print(f"FAILURE {model_name}: no such file {example_path}")
+        result.failed.append(model_name)
+        return result
+
+    # Skip files that don't import tcv_screenshots
+    content = example_path.read_text(encoding="utf-8")
+    if "from tcv_screenshots import" not in content and "import tcv_screenshots" not in content:
+        print(f"SKIP {model_name}: no tcv_screenshots import")
+        return result
+
+    # Clear models a previous example saved but never returned
+    clear_saved_models()
+
+    error = None
+    try:
+        module = import_example(example_path)
+
+        # Check for main() function
+        if not hasattr(module, "main"):
+            print(f"SKIP {model_name}: no main() function, skipping")
+            return result
+
+        # Call main() to get saved models
+        returned = module.main()
+    except Exception as e:
+        error = e
+        # The models saved before the error are still rendered
+        returned = get_saved_models()
+
+    # save_model() records its errors instead of raising them, so the
+    # example went on after them
+    for output_name, trace in get_failed_models():
+        report_failure(output_name, trace, example_path)
+        result.failed.append(output_name)
+
+    if error is not None:
+        trace = traceback.TracebackException.from_exception(error)
+        report_failure(model_name, trace, example_path)
+        result.failed.append(model_name)
+
+    # Expect list from get_saved_models(): [(name, message), ...]
+    if not isinstance(returned, list):
+        print(
+            f"FAILURE {model_name}: main() must return get_saved_models(), "
+            f"got {type(returned).__name__}"
+        )
+        result.failed.append(model_name)
+        return result
+
+    models_to_process = []
+    for item in returned:
+        if (
+            isinstance(item, tuple)
+            and len(item) == 2
+            and isinstance(item[0], str)
+            and isinstance(item[1], dict)
+        ):
+            models_to_process.append(item)
+        else:
+            print(
+                f"FAILURE {model_name}: invalid item in get_saved_models(): "
+                f"{item!r:.80}"
+            )
+            result.failed.append(model_name)
+
+    if len(models_to_process) == 0:
+        if error is None:
+            print(f"SKIP {model_name}: no models to process")
+        return result
+
+    for output_name, message in models_to_process:
+        # Save to file if debug mode
+        if models_dir is not None:
+            output_path = models_dir / f"{output_name}.json"
+            try:
+                output_path.write_text(
+                    json.dumps(message, default=json_default), encoding="utf-8"
+                )
+            except Exception as e:
+                trace = traceback.TracebackException.from_exception(e)
+                report_failure(output_name, trace, example_path)
+                result.failed.append(output_name)
+                continue
+            print(f"OK {output_name}.json")
+
+        result.models.append((output_name, message))
+
+    return result
+
+
+def collect_models(*paths: str | Path, models_dir: str | Path | None = None) -> CollectResult:
+    """
+    Run example files and collect the models they saved.
+
+    Every example runs with the defaults given to `set_defaults` before this
+    call; a `set_defaults` inside one example does not reach the next.
+
+    Args:
+        paths: Example files and directories of example files
+        models_dir: If provided, save each model's JSON here (debug mode)
 
     Returns:
-        List of (name, message) tuples, message being ocp-viewer-core's data
-        message, and the number of failures
+        The collected models, ready for render_models, and the names of the
+        examples and models that failed
     """
+    result = CollectResult()
 
-    # Determine example files
-    if isinstance(examples, list):
-        example_files = examples
-    else:
-        # Find all Python files in directory (excluding __init__.py, __pycache__)
-        example_files = sorted(
-            f for f in examples.glob("*.py") if not f.name.startswith("_")
-        )
-
+    example_files = find_example_files(paths)
     if len(example_files) == 0:
         print("No example files found")
-        return [], 0
+        return result
 
     print(f"Found {len(example_files)} example(s) to process")
 
     # Ensure models directory exists if saving
     if models_dir is not None:
+        models_dir = Path(models_dir)
         models_dir.mkdir(parents=True, exist_ok=True)
 
-    processed_models = []
-    fail_count = 0
-
     for example_path in example_files:
-        model_name = example_path.stem
+        with isolated_defaults():
+            example_result = run_example(example_path, models_dir)
+        result.models.extend(example_result.models)
+        result.failed.extend(example_result.failed)
 
-        # Skip files that don't import tcv_screenshots
-        content = example_path.read_text(encoding="utf-8")
-        if "from tcv_screenshots import" not in content and "import tcv_screenshots" not in content:
-            print(f"SKIP {model_name}: no tcv_screenshots import")
-            continue
-
-        # Clear models a previous example saved but never returned
-        clear_saved_models()
-
-        error = None
-        try:
-            module = import_example(example_path)
-
-            # Check for main() function
-            if not hasattr(module, "main"):
-                print(f"SKIP {model_name}: no main() function, skipping")
-                continue
-
-            # Call main() to get saved models
-            result = module.main()
-        except Exception as e:
-            error = e
-            # The models saved before the error are still rendered
-            result = get_saved_models()
-
-        # save_model() records its errors instead of raising them, so the
-        # example went on after them
-        for output_name, trace in get_failed_models():
-            report_failure(output_name, trace, example_path)
-            fail_count += 1
-
-        if error is not None:
-            trace = traceback.TracebackException.from_exception(error)
-            report_failure(model_name, trace, example_path)
-            fail_count += 1
-
-        # Expect list from get_saved_models(): [(name, message), ...]
-        if not isinstance(result, list):
-            print(
-                f"FAILURE {model_name}: main() must return get_saved_models(), "
-                f"got {type(result).__name__}"
-            )
-            fail_count += 1
-            continue
-
-        models_to_process = []
-        for item in result:
-            if (
-                isinstance(item, tuple)
-                and len(item) == 2
-                and isinstance(item[0], str)
-                and isinstance(item[1], dict)
-            ):
-                models_to_process.append(item)
-            else:
-                print(
-                    f"FAILURE {model_name}: invalid item in get_saved_models(): "
-                    f"{item!r:.80}"
-                )
-                fail_count += 1
-
-        if len(models_to_process) == 0:
-            if error is None:
-                print(f"SKIP {model_name}: no models to process")
-            continue
-
-        for output_name, message in models_to_process:
-            # Save to file if debug mode
-            if models_dir is not None:
-                output_path = models_dir / f"{output_name}.json"
-                try:
-                    output_path.write_text(
-                        json.dumps(message, default=json_default), encoding="utf-8"
-                    )
-                except Exception as e:
-                    trace = traceback.TracebackException.from_exception(e)
-                    report_failure(output_name, trace, example_path)
-                    fail_count += 1
-                    continue
-                print(f"OK {output_name}.json")
-
-            processed_models.append((output_name, message))
-
-    return processed_models, fail_count
+    return result
 
 
 def describe_render_error(error: Exception, debug: bool) -> str:
@@ -408,38 +467,42 @@ async def capture_image(page, model_name: str) -> bytes:
         await asyncio.sleep(0.25)
 
 
-async def render_models_to_screenshots(
+async def render_models_async(
     models: list[tuple[str, dict]],
-    screenshots_dir: Path,
+    output_dir: str | Path,
+    *,
     headless: bool = True,
     pause: bool = False,
     debug: bool = False,
-) -> int:
+) -> RenderResult:
     """
-    Render models to PNG screenshots.
+    Render models to PNG screenshots, `<output_dir>/<name>.png`.
+
+    The awaitable form of render_models, for callers that already run an
+    event loop (e.g. Jupyter).
 
     Args:
-        models: List of (name, message) tuples from process_examples
-        screenshots_dir: Directory for output PNG files
+        models: (name, message) tuples, from collect_models(...).models or
+            get_saved_models()
+        output_dir: Directory for the PNG files, created if missing
         headless: Run browser in headless mode
         pause: Pause before each screenshot for debugging
-        debug: Show browser console debug/info/warning messages
+        debug: Show browser console messages and full error messages
 
     Returns:
-        Number of failures (0 = all succeeded)
+        The PNG files written and the names of the models that failed
     """
+    result = RenderResult()
 
     if len(models) == 0:
         print("No models to render")
-        return 0
+        return result
 
     print(f"\nRendering {len(models)} model(s) to screenshots")
 
     # Ensure output directory exists
-    screenshots_dir.mkdir(parents=True, exist_ok=True)
-
-    success_count = 0
-    fail_count = 0
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     with serve_viewer(models) as server:
         viewer_url = f"{server.base_url}/viewer.html"
@@ -452,13 +515,14 @@ async def render_models_to_screenshots(
                     "Error: Viewer failed to initialize: "
                     f"{describe_render_error(e, debug)}"
                 )
-                return len(models)
+                result.failed.extend(name for name, _message in models)
+                return result
 
             restart = False
 
             # Process each model
             for index, (model_name, message) in enumerate(models):
-                output_path = screenshots_dir / f"{model_name}.png"
+                output_path = output_dir / f"{model_name}.png"
 
                 # After a failure the page or browser may be dead (crash) or the
                 # viewer in a broken state: continue with a fresh browser, otherwise
@@ -476,7 +540,7 @@ async def render_models_to_screenshots(
                             "Error: Viewer failed to restart: "
                             f"{describe_render_error(e, debug)}"
                         )
-                        fail_count += len(models) - index
+                        result.failed.extend(name for name, _message in models[index:])
                         break
                     restart = False
                 elif index > 0:
@@ -493,7 +557,7 @@ async def render_models_to_screenshots(
                             f"FAILURE {model_name}: reloading viewer: "
                             f"{describe_render_error(e, debug)}"
                         )
-                        fail_count += 1
+                        result.failed.append(model_name)
                         restart = True
                         continue
 
@@ -532,57 +596,87 @@ async def render_models_to_screenshots(
                     output_path.write_bytes(image_bytes)
 
                     print(f"OK {model_name}.png")
-                    success_count += 1
+                    result.written.append(output_path)
 
                 except Exception as e:
                     print(f"FAILURE {model_name}: {describe_render_error(e, debug)}")
                     if debug:
                         print(indent(traceback.format_exc().rstrip("\n"), "    "))
-                    fail_count += 1
+                    result.failed.append(model_name)
                     restart = True
 
             # The browser may already be dead after a failure of the last model
             with contextlib.suppress(Exception):
                 await browser.close()
 
-    print(f"\nDone: {success_count} succeeded, {fail_count} failed")
-    return fail_count
+    print(f"\nDone: {len(result.written)} succeeded, {len(result.failed)} failed")
+    return result
+
+
+def render_models(
+    models: list[tuple[str, dict]],
+    output_dir: str | Path,
+    *,
+    headless: bool = True,
+    pause: bool = False,
+    debug: bool = False,
+) -> RenderResult:
+    """
+    Render models to PNG screenshots, `<output_dir>/<name>.png`.
+
+    Args:
+        models: (name, message) tuples, from collect_models(...).models or
+            get_saved_models()
+        output_dir: Directory for the PNG files, created if missing
+        headless: Run browser in headless mode
+        pause: Pause before each screenshot for debugging
+        debug: Show browser console messages and full error messages
+
+    Returns:
+        The PNG files written and the names of the models that failed
+    """
+    return asyncio.run(
+        render_models_async(
+            models, output_dir, headless=headless, pause=pause, debug=debug
+        )
+    )
 
 
 def run(
-    examples: Path | list[Path],
-    screenshots_dir: Path,
+    examples: str | Path | list[str | Path],
+    screenshots_dir: str | Path,
     headless: bool = True,
     pause: bool = False,
-    debug_models_dir: Path = None,
+    debug_models_dir: str | Path | None = None,
 ):
     """
-    Main entry point.
+    Command line entry point: collect_models, then render_models.
 
     Exits with status 1 if any example or model failed, in processing or in
     rendering, so that a CI job fails.
     """
+    if not isinstance(examples, list):
+        examples = [examples]
+
     # Process examples (optionally save JSON in debug mode)
     print("=== Processing examples ===\n")
-    models, process_fail_count = process_examples(examples, debug_models_dir)
+    collected = collect_models(*examples, models_dir=debug_models_dir)
 
-    render_fail_count = 0
-    if len(models) == 0:
+    rendered = RenderResult()
+    if len(collected.models) == 0:
         print("No models to render")
     else:
         # Render models to screenshots
         print("\n=== Rendering models to screenshots ===")
-        render_fail_count = asyncio.run(
-            render_models_to_screenshots(
-                models,
-                screenshots_dir,
-                headless=headless,
-                pause=pause,
-                debug=debug_models_dir is not None,
-            )
+        rendered = render_models(
+            collected.models,
+            screenshots_dir,
+            headless=headless,
+            pause=pause,
+            debug=debug_models_dir is not None,
         )
 
-    if process_fail_count > 0:
-        print(f"\n{process_fail_count} failure(s) while processing examples")
-    if process_fail_count > 0 or render_fail_count > 0:
+    if len(collected.failed) > 0:
+        print(f"\n{len(collected.failed)} failure(s) while processing examples")
+    if len(collected.failed) > 0 or len(rendered.failed) > 0:
         sys.exit(1)
