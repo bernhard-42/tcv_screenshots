@@ -26,6 +26,8 @@ v0.4.0
 - A failing example prints its full traceback, starting at the example's own code ([#6](https://github.com/bernhard-42/tcv_screenshots/issues/6))
 - Any failure while processing examples (error at import, error in `main()`, `main()` not returning a list, invalid items) makes the CLI exit with status 1. Before, only rendering failures did, so a CI job stayed green when every example was broken
 - Errors are handled per model: an error in `save_model` fails only that model and the example goes on, and the models an example saved before an error are still rendered
+- `save_model` prints its error with the traceback when it happens, also when a script calls it directly; `get_failed_models()` returns the failed `(name, traceback)` pairs, e.g. for a script's exit status. A leftover 0.3.0 key (`cadWidth=500`) shows up this way instead of silently dropping the screenshot
+- Models saved with `save_model` before a call to `collect_models` are kept; before, the call discarded them silently
 - When rendering fails in the browser, only the first line of Playwright's message is printed (it can carry the browser's whole log or a JavaScript stack); `--debug` prints all of it plus the Python traceback
 
 **Examples**

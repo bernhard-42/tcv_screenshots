@@ -34,6 +34,7 @@ from tcv_screenshots.host import (
     clear_saved_models,
     get_failed_models,
     get_saved_models,
+    isolated_collector,
     isolated_defaults,
 )
 
@@ -279,10 +280,9 @@ def run_example(example_path: Path, models_dir: Path | None = None) -> CollectRe
         # The models saved before the error are still rendered
         returned = get_saved_models()
 
-    # save_model() records its errors instead of raising them, so the
-    # example went on after them
-    for output_name, trace in get_failed_models():
-        report_failure(output_name, trace, example_path)
+    # save_model() prints and records its errors instead of raising them, so
+    # the example went on after them; count them here
+    for output_name, _trace in get_failed_models():
         result.failed.append(output_name)
 
     if error is not None:
@@ -316,7 +316,8 @@ def run_example(example_path: Path, models_dir: Path | None = None) -> CollectRe
             result.failed.append(model_name)
 
     if len(models_to_process) == 0:
-        if error is None:
+        # No SKIP after a failure: the example did not run as written
+        if len(result.failed) == 0:
             print(f"SKIP {model_name}: no models to process")
         return result
 
@@ -369,11 +370,13 @@ def collect_models(*paths: str | Path, models_dir: str | Path | None = None) -> 
         models_dir = Path(models_dir)
         models_dir.mkdir(parents=True, exist_ok=True)
 
-    for example_path in example_files:
-        with isolated_defaults():
-            example_result = run_example(example_path, models_dir)
-        result.models.extend(example_result.models)
-        result.failed.extend(example_result.failed)
+    # Models the caller saved before this call stay theirs
+    with isolated_collector():
+        for example_path in example_files:
+            with isolated_defaults():
+                example_result = run_example(example_path, models_dir)
+            result.models.extend(example_result.models)
+            result.failed.extend(example_result.failed)
 
     return result
 

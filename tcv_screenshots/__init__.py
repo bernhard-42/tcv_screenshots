@@ -16,6 +16,7 @@ from ocp_viewer_core.config import (
 from tcv_screenshots.host import (
     clear_saved_models,
     get_defaults,
+    get_failed_models,
     get_saved_models,
     reset_defaults,
     save_model,
@@ -34,6 +35,7 @@ __version__ = "0.4.0"
 __all__ = [
     "save_model",
     "get_saved_models",
+    "get_failed_models",
     "clear_saved_models",
     "set_defaults",
     "reset_defaults",
