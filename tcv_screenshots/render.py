@@ -38,8 +38,10 @@ from tcv_screenshots.host import (
     isolated_defaults,
 )
 
-# Seconds to wait for the viewer to deliver an image of a loaded model
-IMAGE_TIMEOUT = 30.0
+# Upper bound in seconds for capturing one image, so that a hung browser cannot
+# block the run forever. Not a wait: a capture returns as soon as it is done.
+# Generous, as SwiftShader needed up to 75 s for one large model.
+IMAGE_TIMEOUT = 600.0
 
 
 def get_package_dir() -> Path:
@@ -508,18 +510,20 @@ async def capture_image(page, model_name: str) -> bytes:
     """
     Capture the loaded model as PNG.
 
-    The viewer answers with no image until it is ready to render, so ask again
-    until it delivers one or IMAGE_TIMEOUT has passed.
+    The model is drawn synchronously by loadModel, so the viewer is ready right
+    after it; the page only needs extra frames for studio mode (see getImage
+    in viewer.html). No image means the viewer was not ready, which is an error.
     """
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + IMAGE_TIMEOUT
-    while True:
-        data_url = await page.evaluate("(name) => window.getImage(name)", model_name)
-        if isinstance(data_url, str) and data_url != "":
-            return base64.b64decode(data_url.split(",", 1)[1])
-        if loop.time() > deadline:
-            raise RuntimeError(f"no image after {IMAGE_TIMEOUT:.0f}s")
-        await asyncio.sleep(0.25)
+    try:
+        data_url = await asyncio.wait_for(
+            page.evaluate("(name) => window.getImage(name)", model_name),
+            timeout=IMAGE_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        raise RuntimeError(f"no image after {IMAGE_TIMEOUT:.0f}s") from None
+    if not isinstance(data_url, str) or data_url == "":
+        raise RuntimeError("the viewer was not ready to render the model")
+    return base64.b64decode(data_url.split(",", 1)[1])
 
 
 async def render_models_async(
@@ -644,9 +648,6 @@ async def render_models_async(
                     await page.evaluate(
                         "(url) => window.loadModel(url)", f"/models/{index}"
                     )
-
-                    # Give time for rendering to complete
-                    await asyncio.sleep(0.5)
 
                     # Wait for user input if pause mode
                     if pause:
