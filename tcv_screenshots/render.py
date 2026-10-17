@@ -399,7 +399,62 @@ def describe_render_error(error: Exception, debug: bool) -> str:
     return f"{lines[0]} [{len(lines) - 1} more lines with --debug]"
 
 
-async def launch_viewer(playwright, viewer_url: str, headless: bool, debug: bool):
+# Software rendering (SwiftShader): works on a machine without a GPU such as a
+# CI runner (gpu=False, --no-gpu), but is much slower for large models.
+SWIFTSHADER_ARGS = [
+    "--use-gl=angle",
+    "--use-angle=swiftshader",
+    "--enable-webgl",
+    "--ignore-gpu-blocklist",
+    "--enable-unsafe-swiftshader",
+]
+
+# Chromium flags for the GPU per platform; the headless shell renders with
+# SwiftShader without them. Measured on an Apple M1 Max and on a Ryzen 9 7900
+# with integrated AMD graphics plus an NVIDIA RTX 5060 (Linux and Windows 11):
+# - macOS: Metal reaches the GPU
+# - Windows: d3d11 alone picks the integrated GPU; --force_high_performance_gpu
+#   makes it the RTX (vulkan reaches it too, but d3d11 exists on every Windows)
+# - Linux: vulkan reaches the RTX; "gl" fell back to SwiftShader and "gl-egl"
+#   picked the integrated GPU
+GPU_ARGS = {
+    "darwin": ["--use-angle=metal"],
+    "win32": ["--use-angle=d3d11", "--force_high_performance_gpu"],
+    "linux": ["--use-angle=vulkan"],
+}
+
+
+def gpu_args() -> list[str]:
+    """
+    Chromium flags for hardware rendering on this platform (the default).
+
+    --enable-unsafe-swiftshader keeps WebGL working on a machine without a
+    usable GPU: Chromium then falls back to SwiftShader instead of having no
+    WebGL at all. With a GPU it does not change the choice (measured on macOS).
+    """
+    platform_args = GPU_ARGS.get(sys.platform, GPU_ARGS["linux"])
+    return [*platform_args, "--ignore-gpu-blocklist", "--enable-unsafe-swiftshader"]
+
+
+async def webgl_renderer(page) -> str:
+    """The renderer WebGL reports in the page, e.g. a GPU or SwiftShader."""
+    return await page.evaluate(
+        """() => {
+            const gl = document.createElement("canvas").getContext("webgl2");
+            if (gl === null) {
+                return "no WebGL 2";
+            }
+            const info = gl.getExtension("WEBGL_debug_renderer_info");
+            return info === null
+                ? gl.getParameter(gl.RENDERER)
+                : gl.getParameter(info.UNMASKED_RENDERER_WEBGL);
+        }"""
+    )
+
+
+async def launch_viewer(
+    playwright, viewer_url: str, headless: bool, debug: bool, gpu: bool = True
+):
     """
     Launch a browser and open the viewer page in it.
 
@@ -408,6 +463,7 @@ async def launch_viewer(playwright, viewer_url: str, headless: bool, debug: bool
         viewer_url: URL of viewer.html
         headless: Run browser in headless mode
         debug: Show browser console debug/info/warning messages
+        gpu: Render with the GPU; False renders with SwiftShader
 
     Returns:
         (browser, page) with the viewer initialized
@@ -419,11 +475,7 @@ async def launch_viewer(playwright, viewer_url: str, headless: bool, debug: bool
             "--no-sandbox",
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
-            "--use-gl=angle",
-            "--use-angle=swiftshader",
-            "--enable-webgl",
-            "--ignore-gpu-blocklist",
-            "--enable-unsafe-swiftshader",
+            *(gpu_args() if gpu else SWIFTSHADER_ARGS),
         ],
     )
 
@@ -477,6 +529,7 @@ async def render_models_async(
     headless: bool = True,
     pause: bool = False,
     debug: bool = False,
+    gpu: bool = True,
 ) -> RenderResult:
     """
     Render models to PNG screenshots, `<output_dir>/<name>.png`.
@@ -491,6 +544,9 @@ async def render_models_async(
         headless: Run browser in headless mode
         pause: Pause before each screenshot for debugging
         debug: Show browser console messages and full error messages
+        gpu: Render with the GPU (default). False renders with the software
+            renderer SwiftShader: works without a GPU (CI), but much slower
+            for large models
 
     Returns:
         The PNG files written and the names of the models that failed
@@ -512,7 +568,9 @@ async def render_models_async(
 
         async with async_playwright() as p:
             try:
-                browser, page = await launch_viewer(p, viewer_url, headless, debug)
+                browser, page = await launch_viewer(
+                    p, viewer_url, headless, debug, gpu
+                )
             except Exception as e:
                 print(
                     "Error: Viewer failed to initialize: "
@@ -520,6 +578,18 @@ async def render_models_async(
                 )
                 result.failed.extend(name for name, _message in models)
                 return result
+
+            if gpu:
+                # Chromium falls back to software rendering when it cannot use
+                # the GPU; say so instead of silently being slow
+                renderer = await webgl_renderer(page)
+                if "SwiftShader" in renderer:
+                    print(
+                        f"Warning: no usable GPU, the browser renders with {renderer}. "
+                        "Use --no-gpu (gpu=False) to choose SwiftShader explicitly"
+                    )
+                else:
+                    print(f"GPU rendering: {renderer}")
 
             restart = False
 
@@ -536,7 +606,7 @@ async def render_models_async(
                         await browser.close()
                     try:
                         browser, page = await launch_viewer(
-                            p, viewer_url, headless, debug
+                            p, viewer_url, headless, debug, gpu
                         )
                     except Exception as e:
                         print(
@@ -623,6 +693,7 @@ def render_models(
     headless: bool = True,
     pause: bool = False,
     debug: bool = False,
+    gpu: bool = True,
 ) -> RenderResult:
     """
     Render models to PNG screenshots, `<output_dir>/<name>.png`.
@@ -634,13 +705,16 @@ def render_models(
         headless: Run browser in headless mode
         pause: Pause before each screenshot for debugging
         debug: Show browser console messages and full error messages
+        gpu: Render with the GPU (default). False renders with the software
+            renderer SwiftShader: works without a GPU (CI), but much slower
+            for large models
 
     Returns:
         The PNG files written and the names of the models that failed
     """
     return asyncio.run(
         render_models_async(
-            models, output_dir, headless=headless, pause=pause, debug=debug
+            models, output_dir, headless=headless, pause=pause, debug=debug, gpu=gpu
         )
     )
 
@@ -651,6 +725,7 @@ def run(
     headless: bool = True,
     pause: bool = False,
     debug_models_dir: str | Path | None = None,
+    gpu: bool = True,
 ):
     """
     Command line entry point: collect_models, then render_models.
@@ -677,6 +752,7 @@ def run(
             headless=headless,
             pause=pause,
             debug=debug_models_dir is not None,
+            gpu=gpu,
         )
 
     if len(collected.failed) > 0:

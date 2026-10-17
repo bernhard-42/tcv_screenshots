@@ -20,6 +20,7 @@ v0.4.0
 - The size of every image is checked against `cad_width` x `height`
 - Model data is served to the viewer by a local HTTP server on `127.0.0.1` instead of being passed through Playwright's `page.evaluate`. Large models (e.g. a ~170 MB assembly) no longer crash the browser ([#5](https://github.com/bernhard-42/tcv_screenshots/issues/5))
 - After a failed model the browser is restarted, so one crash no longer fails all remaining models
+- Rendering uses the GPU by default; `--no-gpu` (`render_models(..., gpu=False)`) renders with the software renderer SwiftShader as before, e.g. on CI runners without a GPU ([#4](https://github.com/bernhard-42/tcv_screenshots/issues/4)). A heat exchanger and a 100-screw assembly take 2.4-2.5 s instead of 112.8 s (Apple M1 Max, Metal), 73.6 s (RTX 5060, Vulkan on Linux) or 65.9 s (RTX 5060, Direct3D 11 on Windows 11); images differ in anti-aliasing only. Verified on macOS, Linux and Windows. The example CI workflow passes `--no-gpu`
 
 **Errors**
 

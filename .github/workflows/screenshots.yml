@@ -41,7 +41,8 @@ jobs:
       - name: Generate screenshots
         run: |
           mkdir -p screenshots
-          python -m tcv_screenshots -d examples -o screenshots
+          # Runners have no GPU: render with SwiftShader
+          python -m tcv_screenshots -d examples -o screenshots --no-gpu
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4

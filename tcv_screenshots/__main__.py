@@ -43,6 +43,12 @@ def main():
         help="Pause before each screenshot (for debugging)",
     )
     parser.add_argument(
+        "--no-gpu",
+        action="store_true",
+        help="Render with the software renderer SwiftShader instead of the GPU: "
+        "works without a GPU (CI), but is much slower for large models",
+    )
+    parser.add_argument(
         "--debug",
         type=Path,
         metavar="MODELS_DIR",
@@ -70,6 +76,7 @@ def main():
         headless=not args.no_headless,
         pause=args.pause,
         debug_models_dir=args.debug.resolve() if args.debug else None,
+        gpu=not args.no_gpu,
     )
 
 

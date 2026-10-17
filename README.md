@@ -37,6 +37,7 @@ python -m tcv_screenshots -d examples -o screenshots
 - `-o, --output-folder DIR` - Output directory for PNG screenshots
 - `--no-headless` - Show browser window (for debugging)
 - `--pause` - Pause before each screenshot (for debugging)
+- `--no-gpu` - Render with the software renderer SwiftShader instead of the GPU, e.g. on CI runners, see [GPU Rendering](#gpu-rendering)
 - `--debug MODELS_DIR` - Save JSON model files to directory, show browser console messages and full rendering errors (for debugging)
 
 ## Writing Examples
@@ -178,9 +179,24 @@ print(collected.failed + failed_saves + rendered.failed)  # names of what failed
 ```
 
 - `collect_models(*paths, models_dir=None)` returns a `CollectResult` with `models` and `failed`. Each example runs with the defaults set before the call; a `set_defaults` inside one example does not reach the next. Models a script saved with `save_model` before the call stay in the collector for `get_saved_models()`. With `models_dir`, every model's JSON is saved there.
-- `render_models(models, output_dir, *, headless=True, pause=False, debug=False)` writes `<output_dir>/<name>.png` and returns a `RenderResult` with `written` and `failed`. In an environment that already runs an event loop (e.g. Jupyter), use `await render_models_async(...)` with the same arguments.
+- `render_models(models, output_dir, *, headless=True, pause=False, debug=False, gpu=True)` writes `<output_dir>/<name>.png` and returns a `RenderResult` with `written` and `failed`. In an environment that already runs an event loop (e.g. Jupyter), use `await render_models_async(...)` with the same arguments.
 - Neither function exits: failures are printed, with tracebacks, and returned.
 - `save_model` does not raise either: a model it cannot create is printed as `FAILURE` with its traceback, and `get_failed_models()` returns the `(name, traceback)` pairs since the last call. `collect_models` counts these in its `failed`; a script that calls `save_model` itself reads them with `get_failed_models()`.
+
+## GPU Rendering
+
+By default the browser renders with the GPU. `--no-gpu` (or `render_models(..., gpu=False)`) renders with SwiftShader, a software renderer, instead: it needs no GPU, e.g. on CI runners, but large models are much slower. Use it in CI, as in [.github/workflows/screenshots.yml](.github/workflows/screenshots.yml).
+
+| Machine | 8 examples of this repo, whole run | heat exchanger (149 filleted tubes, 33 MB of mesh) and an assembly of 100 screws |
+| --- | --- | --- |
+| Apple M1 Max, macOS: SwiftShader | 20.2 s | 112.8 s |
+| Apple M1 Max, macOS: GPU (Metal) | 11.0 s | 2.5 s |
+| Ryzen 9 7900 + RTX 5060, Linux: SwiftShader | 11.9 s | 73.6 s |
+| Ryzen 9 7900 + RTX 5060, Linux: GPU (Vulkan) | 9.9 s | 2.5 s |
+| Ryzen 9 7900 + RTX 5060, Windows 11: SwiftShader | 12.1 s | 65.9 s |
+| Ryzen 9 7900 + RTX 5060, Windows 11: GPU (Direct3D 11) | 8.3 s | 2.4 s |
+
+GPU and SwiftShader images differ in anti-aliasing only (at most 0.6% of the pixels by more than 32/255 in these examples); SwiftShader images of different machines and Chromium versions differ much less, but are not byte-identical either. A comparison against stored reference images should therefore use one renderer consistently. The renderer is printed (`GPU rendering: ...`). Without a usable GPU, Chromium falls back to SwiftShader and a warning says so; `--no-gpu` makes that choice explicit and silent. Verified on macOS (Metal), Linux (Vulkan) and Windows 11 (Direct3D 11 with `--force_high_performance_gpu`, which picks the discrete GPU over the integrated one).
 
 ## Migration from 0.3.0
 
@@ -262,6 +278,7 @@ A camera computed by the script goes to `save_model` as keywords: `position=`, `
 ### Behaviour changes
 
 - Every screenshot starts with a fresh viewer: settings of one screenshot (clipping, transparency, camera, tab) no longer carry over to the next.
+- Rendering uses the GPU by default; 0.3.0 always used the software renderer SwiftShader. In CI without a GPU, add `--no-gpu` (images then match what 0.4.0 renders with SwiftShader elsewhere).
 - The command line exits with status 1 when an example fails to load or run, not only when rendering fails.
 - An error in `save_model` no longer raises: it is printed with its traceback, the model is recorded as failed (`get_failed_models()`), and the code calling `save_model` goes on. A leftover 0.3.0 key such as `cadWidth=500` shows up this way, as `TypeError: ... unexpected keyword argument 'cadWidth'`.
 
