@@ -426,15 +426,15 @@ GPU_ARGS = {
 }
 
 
-def gpu_args() -> list[str]:
+def gpu_args(platform: str = sys.platform) -> list[str]:
     """
-    Chromium flags for hardware rendering on this platform (the default).
+    Chromium flags for hardware rendering on a platform (the default).
 
     --enable-unsafe-swiftshader keeps WebGL working on a machine without a
     usable GPU: Chromium then falls back to SwiftShader instead of having no
     WebGL at all. With a GPU it does not change the choice (measured on macOS).
     """
-    platform_args = GPU_ARGS.get(sys.platform, GPU_ARGS["linux"])
+    platform_args = GPU_ARGS.get(platform, GPU_ARGS["linux"])
     return [*platform_args, "--ignore-gpu-blocklist", "--enable-unsafe-swiftshader"]
 
 

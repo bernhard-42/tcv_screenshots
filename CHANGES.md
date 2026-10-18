@@ -33,6 +33,10 @@ v0.4.0
 - Models saved with `save_model` before a call to `collect_models` are kept; before, the call discarded them silently
 - When rendering fails in the browser, only the first line of Playwright's message is printed (it can carry the browser's whole log or a JavaScript stack); `--debug` prints all of it plus the Python traceback
 
+**Tests**
+
+- A test suite (pytest, in the `dev` extra): fast tests for `save_model`, the defaults, `collect_models`, failure reporting, exit codes and the local server, and browser tests (`-m browser`) for rendering, image sizes, no settings carried over between screenshots, studio mode and the browser restart. `--no-gpu` renders the browser tests with SwiftShader; the example CI workflow runs them that way
+
 **Examples**
 
 - `box_cyl_colors.py` saves `box_cyl_colors.png`; it overwrote `faces_only.png` of `box.py` before

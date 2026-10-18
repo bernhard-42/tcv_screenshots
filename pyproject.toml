@@ -17,7 +17,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["build"]
+dev = ["build", "pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "browser: renders in headless Chromium (needs `playwright install chromium`)",
+]
 
 [tool.setuptools.packages.find]
 include = ["tcv_screenshots*"]

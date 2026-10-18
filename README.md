@@ -288,9 +288,20 @@ A camera computed by the script goes to `save_model` as keywords: `position=`, `
 
 ## Development
 
+Install with the development tools and run the tests:
+
+```bash
+pip install -e ".[dev]"
+playwright install chromium
+python -m pytest
+```
+
+- `python -m pytest -m "not browser"` runs only the fast tests, without a browser (seconds).
+- `python -m pytest --no-gpu` renders the browser tests with SwiftShader, as CI does on runners without a GPU.
+- Browser tests compare images within one run, not with stored reference images: GPU and SwiftShader, and different machines, differ slightly in anti-aliasing.
+
 Build the wheel:
 
 ```bash
-pip install build
 python -m build
 ```
