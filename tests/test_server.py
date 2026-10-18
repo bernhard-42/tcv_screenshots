@@ -6,7 +6,9 @@ import json
 from pngtools import decode, encode
 
 from tcv_screenshots.render import (
+    BROWSERS,
     SWIFTSHADER_ARGS,
+    browser_order,
     gpu_args,
     png_size,
     resolve_viewer_file,
@@ -76,3 +78,13 @@ def test_gpu_flags_per_platform():
     for platform in ("darwin", "win32", "linux"):
         assert "--enable-unsafe-swiftshader" in gpu_args(platform)
     assert "--use-angle=swiftshader" in SWIFTSHADER_ARGS
+
+
+def test_browser_order_per_platform():
+    # Windows always has Edge; elsewhere Chrome is the more likely installed one;
+    # Playwright's own Chromium is the last resort everywhere
+    assert browser_order("win32") == ("msedge", "chrome", "chromium")
+    assert browser_order("darwin") == ("chrome", "msedge", "chromium")
+    assert browser_order("linux") == ("chrome", "msedge", "chromium")
+    for platform in ("win32", "darwin", "linux"):
+        assert sorted(browser_order(platform)) == sorted(BROWSERS)

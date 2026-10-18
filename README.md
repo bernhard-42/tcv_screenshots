@@ -12,10 +12,10 @@ Headless screenshot generator for three-cad-viewer. Render 3D CAD models to PNG 
 
 ```bash
 pip install tcv-screenshots
-playwright install chromium
+playwright install chromium   # only needed without an installed Chrome or Edge
 ```
 
-If you use build123d for creating 3D objects, `build123d` neeeds to be installed, similar for CadQuery.
+tcv_screenshots uses an installed Google Chrome or Microsoft Edge when there is one, see [Browser](#browser); `python -m tcv_screenshots --check` shows which one. If you use build123d for creating 3D objects, `build123d` neeeds to be installed, similar for CadQuery.
 
 ## Usage
 
@@ -38,6 +38,8 @@ python -m tcv_screenshots -d examples -o screenshots
 - `--no-headless` - Show browser window (for debugging)
 - `--pause` - Pause before each screenshot (for debugging)
 - `--no-gpu` - Render with the software renderer SwiftShader instead of the GPU, e.g. on CI runners, see [GPU Rendering](#gpu-rendering)
+- `--browser {chrome,msedge,chromium}` - Use this browser only, see [Browser](#browser)
+- `--check` - Show which browsers work, with version and renderer, and which one a run would use; renders nothing
 - `--debug MODELS_DIR` - Save JSON model files to directory, show browser console messages and full rendering errors (for debugging)
 
 ## Writing Examples
@@ -179,7 +181,7 @@ print(collected.failed + failed_saves + rendered.failed)  # names of what failed
 ```
 
 - `collect_models(*paths, models_dir=None)` returns a `CollectResult` with `models` and `failed`. Each example runs with the defaults set before the call; a `set_defaults` inside one example does not reach the next. Models a script saved with `save_model` before the call stay in the collector for `get_saved_models()`. With `models_dir`, every model's JSON is saved there.
-- `render_models(models, output_dir, *, headless=True, pause=False, debug=False, gpu=True)` writes `<output_dir>/<name>.png` and returns a `RenderResult` with `written` and `failed`. In an environment that already runs an event loop (e.g. Jupyter), use `await render_models_async(...)` with the same arguments.
+- `render_models(models, output_dir, *, headless=True, pause=False, debug=False, gpu=True, browser=None)` writes `<output_dir>/<name>.png` and returns a `RenderResult` with `written` and `failed`. In an environment that already runs an event loop (e.g. Jupyter), use `await render_models_async(...)` with the same arguments.
 - Neither function exits: failures are printed, with tracebacks, and returned.
 - `save_model` does not raise either: a model it cannot create is printed as `FAILURE` with its traceback, and `get_failed_models()` returns the `(name, traceback)` pairs since the last call. `collect_models` counts these in its `failed`; a script that calls `save_model` itself reads them with `get_failed_models()`.
 
@@ -197,6 +199,22 @@ By default the browser renders with the GPU. `--no-gpu` (or `render_models(..., 
 | Ryzen 9 7900 + RTX 5060, Windows 11: GPU (Direct3D 11) | 8.3 s | 2.4 s |
 
 GPU and SwiftShader images differ in anti-aliasing only (at most 0.6% of the pixels by more than 32/255 in these examples); SwiftShader images of different machines and Chromium versions differ much less, but are not byte-identical either. A comparison against stored reference images should therefore use one renderer consistently. The renderer is printed (`GPU rendering: ...`). Without a usable GPU, Chromium falls back to SwiftShader and a warning says so; `--no-gpu` makes that choice explicit and silent. Verified on macOS (Metal), Linux (Vulkan) and Windows 11 (Direct3D 11 with `--force_high_performance_gpu`, which picks the discrete GPU over the integrated one).
+
+## Browser
+
+tcv_screenshots drives a Chromium-based browser through Playwright. On every run it uses the first that works of:
+
+| Platform      | Order                                                    |
+| ------------- | -------------------------------------------------------- |
+| Windows       | Microsoft Edge (always installed), Google Chrome, Playwright's Chromium |
+| macOS, Linux  | Google Chrome, Microsoft Edge, Playwright's Chromium     |
+
+An installed Chrome or Edge saves the download of Playwright's own Chromium (`playwright install chromium`, several hundred MB). A browser that is not installed is skipped within milliseconds, so nothing is stored between runs. The browser in use is printed (`Browser: chrome 155.0...`).
+
+- `--check` lists every candidate with its version and WebGL renderer and names the one a run would use. If none works, it says to run `playwright install chromium` and exits with status 1.
+- `--browser chrome|msedge|chromium` (`render_models(..., browser="chromium")`) uses exactly that browser, without falling back.
+
+An installed Chrome or Edge updates itself, so screenshots can change slightly between its versions. For reproducible screenshots, e.g. in CI, pin Playwright's Chromium, whose version only changes with the Playwright version: `--browser chromium`. Firefox and WebKit are not supported: Playwright needs its own builds of them and cannot drive an installed Firefox or Safari.
 
 ## Migration from 0.3.0
 

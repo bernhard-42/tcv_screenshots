@@ -14,6 +14,9 @@ dependencies = [
     "playwright>=1.40.0",
     # major.minor must match the bundled ocp-viewer-core JavaScript (1.1.x)
     "ocp-viewer-core>=1.1.2,<1.2.0",
+    # not imported directly: the floor makes sure the tessellation cache fix
+    # (3.6.3, issue #5) is installed; ocp-viewer-core alone allows >=3.6.2
+    "ocp-tessellate>=3.6.3,<3.7.0",
 ]
 
 [project.optional-dependencies]

@@ -16,7 +16,7 @@ from playwright.async_api import async_playwright
 from pngtools import max_difference
 
 from tcv_screenshots import collect_models, get_saved_models, render_models, save_model
-from tcv_screenshots.render import launch_viewer, png_size, serve_viewer
+from tcv_screenshots.render import png_size, serve_viewer, start_viewer
 
 pytestmark = pytest.mark.browser
 
@@ -65,7 +65,10 @@ def test_no_setting_carries_over_to_the_next_screenshot(tmp_path, gpu):
 async def two_captures(message, gpu):
     with serve_viewer([("model", message)]) as server:
         async with async_playwright() as p:
-            browser, page = await launch_viewer(p, f"{server.base_url}/viewer.html", True, False, gpu)
+            # whichever browser a run would use: the test is about the page
+            _name, browser, page = await start_viewer(
+                p, f"{server.base_url}/viewer.html", True, False, gpu
+            )
             try:
                 await page.evaluate("(url) => window.loadModel(url)", "/models/0")
                 first = await page.evaluate("(n) => window.getImage(n)", "first")
@@ -103,3 +106,27 @@ def test_swiftshader_renders_without_a_gpu(tmp_path, capsys):
     assert png_size((tmp_path / "software.png").read_bytes()) == (500, 375)
     # SwiftShader is chosen, not fallen back to: no GPU report, no warning
     assert "GPU" not in capsys.readouterr().out
+
+
+def test_playwrights_chromium_can_be_chosen_explicitly(tmp_path, gpu, capsys):
+    message = message_of(drilled_box(), cad_width=500, height=375)
+    result = render_models([("explicit", message)], tmp_path, gpu=gpu, browser="chromium")
+    assert result.failed == []
+    assert "Browser: chromium " in capsys.readouterr().out
+
+
+def test_without_a_choice_a_run_names_the_browser_it_found(tmp_path, gpu, capsys):
+    message = message_of(drilled_box(), cad_width=500, height=375)
+    result = render_models([("auto", message)], tmp_path, gpu=gpu)
+    assert result.failed == []
+    browser_line = [line for line in capsys.readouterr().out.splitlines() if line.startswith("Browser: ")]
+    assert len(browser_line) == 1
+    assert browser_line[0].split()[1] in ("chrome", "msedge", "chromium")
+
+
+def test_check_names_the_browser_a_run_uses(capsys):
+    from tcv_screenshots.render import check_browsers
+
+    assert check_browsers() is True
+    out = capsys.readouterr().out
+    assert "A run uses: " in out

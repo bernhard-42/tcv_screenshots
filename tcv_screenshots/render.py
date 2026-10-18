@@ -454,8 +454,53 @@ async def webgl_renderer(page) -> str:
     )
 
 
+# The browsers tcv_screenshots drives through Playwright: an installed Google
+# Chrome or Microsoft Edge, or Playwright's own Chromium (`playwright install
+# chromium`). All are Chromium, so the GPU flags above apply to each. Firefox and
+# WebKit are left out: Playwright needs its own builds of them and cannot drive
+# an installed Firefox or Safari.
+BROWSERS = ("chrome", "msedge", "chromium")
+
+INSTALL_HINT = "playwright install chromium"
+
+
+def browser_order(platform: str = sys.platform) -> tuple[str, ...]:
+    """
+    The browsers tried, in this order, when none is given.
+
+    An installed browser saves the download of Playwright's own Chromium
+    (several hundred MB). Windows always has Edge; on macOS and Linux Chrome is
+    the more likely one. Playwright's Chromium comes last; CI pins it with
+    --browser chromium, as its version does not change with updates of the
+    machine.
+    """
+    if platform == "win32":
+        return ("msedge", "chrome", "chromium")
+    return ("chrome", "msedge", "chromium")
+
+
+async def launch_browser(playwright, name: str, headless: bool, gpu: bool):
+    """Launch one of BROWSERS, with the GPU flags or SwiftShader."""
+    if name not in BROWSERS:
+        raise ValueError(f"unknown browser {name!r}, use one of: {', '.join(BROWSERS)}")
+    args = [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        *(gpu_args() if gpu else SWIFTSHADER_ARGS),
+    ]
+    if name == "chromium":
+        return await playwright.chromium.launch(headless=headless, args=args)
+    return await playwright.chromium.launch(channel=name, headless=headless, args=args)
+
+
 async def launch_viewer(
-    playwright, viewer_url: str, headless: bool, debug: bool, gpu: bool = True
+    playwright,
+    viewer_url: str,
+    headless: bool,
+    debug: bool,
+    gpu: bool = True,
+    browser: str = "chromium",
 ):
     """
     Launch a browser and open the viewer page in it.
@@ -466,23 +511,15 @@ async def launch_viewer(
         headless: Run browser in headless mode
         debug: Show browser console debug/info/warning messages
         gpu: Render with the GPU; False renders with SwiftShader
+        browser: One of BROWSERS
 
     Returns:
         (browser, page) with the viewer initialized
     """
-    # Launch browser with WebGL support
-    browser = await playwright.chromium.launch(
-        headless=headless,
-        args=[
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            *(gpu_args() if gpu else SWIFTSHADER_ARGS),
-        ],
-    )
+    instance = await launch_browser(playwright, browser, headless, gpu)
 
     # Create page (viewport will be set per-model based on config)
-    page = await browser.new_page()
+    page = await instance.new_page()
 
     # Log page console output
     def log_console(msg):
@@ -500,10 +537,96 @@ async def launch_viewer(
         await page.goto(viewer_url)
         await page.wait_for_function("window.viewerLoaded === true", timeout=10000)
     except Exception:
-        await browser.close()
+        await instance.close()
         raise
 
-    return browser, page
+    return instance, page
+
+
+def first_line(error: Exception) -> str:
+    """The first line of an error message; Playwright appends long logs."""
+    lines = str(error).strip().splitlines()
+    return lines[0] if len(lines) > 0 else type(error).__name__
+
+
+async def start_viewer(
+    playwright,
+    viewer_url: str,
+    headless: bool,
+    debug: bool,
+    gpu: bool = True,
+    browser: str | None = None,
+):
+    """
+    Open the viewer in the given browser, or in the first of browser_order()
+    that works. A browser that is not installed fails within milliseconds, so
+    trying them in turn on every run costs nothing measurable.
+
+    Returns:
+        (name, browser, page)
+
+    Raises:
+        RuntimeError: No browser worked; names each one's error and how to
+            install Playwright's Chromium
+    """
+    names = browser_order() if browser is None else (browser,)
+    errors = []
+    for name in names:
+        try:
+            instance, page = await launch_viewer(
+                playwright, viewer_url, headless, debug, gpu, name
+            )
+            return name, instance, page
+        except Exception as e:
+            errors.append(f"{name}: {first_line(e)}")
+    raise RuntimeError(
+        f"no usable browser ({'; '.join(errors)}). "
+        f"Install Playwright's Chromium with: {INSTALL_HINT}"
+    )
+
+
+async def check_browsers_async(gpu: bool = True, browser: str | None = None) -> bool:
+    """
+    Print which browsers can be launched, with version and renderer, and which
+    one a run would use. Writes nothing.
+
+    Returns:
+        Whether a run would find a browser
+    """
+    names = browser_order() if browser is None else (browser,)
+    mode = "GPU" if gpu else "SwiftShader (--no-gpu)"
+    if browser is None:
+        print(f"Browsers in the order a run tries them, rendering with {mode}:")
+    else:
+        print(f"Browser given with --browser, rendering with {mode}:")
+    chosen = None
+    async with async_playwright() as p:
+        for name in names:
+            try:
+                instance = await launch_browser(p, name, True, gpu)
+            except Exception as e:
+                print(f"  {name:9s} not usable: {first_line(e)}")
+                continue
+            try:
+                page = await instance.new_page()
+                await page.goto("about:blank")
+                renderer = await webgl_renderer(page)
+                version = instance.version
+            finally:
+                await instance.close()
+            print(f"  {name:9s} {version}, {renderer}")
+            if chosen is None:
+                chosen = name
+    if chosen is None:
+        print(f"No usable browser. Install Playwright's Chromium with: {INSTALL_HINT}")
+        return False
+    print(f"A run uses: {chosen}")
+    return True
+
+
+def check_browsers(gpu: bool = True, browser: str | None = None) -> bool:
+    """The synchronous form of check_browsers_async."""
+    return asyncio.run(check_browsers_async(gpu, browser))
 
 
 async def capture_image(page, model_name: str) -> bytes:
@@ -534,6 +657,7 @@ async def render_models_async(
     pause: bool = False,
     debug: bool = False,
     gpu: bool = True,
+    browser: str | None = None,
 ) -> RenderResult:
     """
     Render models to PNG screenshots, `<output_dir>/<name>.png`.
@@ -551,6 +675,8 @@ async def render_models_async(
         gpu: Render with the GPU (default). False renders with the software
             renderer SwiftShader: works without a GPU (CI), but much slower
             for large models
+        browser: "chrome", "msedge" or "chromium" (Playwright's own); None
+            tries them in the order of browser_order()
 
     Returns:
         The PNG files written and the names of the models that failed
@@ -572,8 +698,8 @@ async def render_models_async(
 
         async with async_playwright() as p:
             try:
-                browser, page = await launch_viewer(
-                    p, viewer_url, headless, debug, gpu
+                browser, instance, page = await start_viewer(
+                    p, viewer_url, headless, debug, gpu, browser
                 )
             except Exception as e:
                 print(
@@ -582,6 +708,8 @@ async def render_models_async(
                 )
                 result.failed.extend(name for name, _message in models)
                 return result
+
+            print(f"Browser: {browser} {instance.version}")
 
             if gpu:
                 # Chromium falls back to software rendering when it cannot use
@@ -607,10 +735,10 @@ async def render_models_async(
                 if restart:
                     print("Restarting browser after failure")
                     with contextlib.suppress(Exception):
-                        await browser.close()
+                        await instance.close()
                     try:
-                        browser, page = await launch_viewer(
-                            p, viewer_url, headless, debug, gpu
+                        instance, page = await launch_viewer(
+                            p, viewer_url, headless, debug, gpu, browser
                         )
                     except Exception as e:
                         print(
@@ -681,7 +809,7 @@ async def render_models_async(
 
             # The browser may already be dead after a failure of the last model
             with contextlib.suppress(Exception):
-                await browser.close()
+                await instance.close()
 
     print(f"\nDone: {len(result.written)} succeeded, {len(result.failed)} failed")
     return result
@@ -695,6 +823,7 @@ def render_models(
     pause: bool = False,
     debug: bool = False,
     gpu: bool = True,
+    browser: str | None = None,
 ) -> RenderResult:
     """
     Render models to PNG screenshots, `<output_dir>/<name>.png`.
@@ -709,13 +838,21 @@ def render_models(
         gpu: Render with the GPU (default). False renders with the software
             renderer SwiftShader: works without a GPU (CI), but much slower
             for large models
+        browser: "chrome", "msedge" or "chromium" (Playwright's own); None
+            tries them in the order of browser_order()
 
     Returns:
         The PNG files written and the names of the models that failed
     """
     return asyncio.run(
         render_models_async(
-            models, output_dir, headless=headless, pause=pause, debug=debug, gpu=gpu
+            models,
+            output_dir,
+            headless=headless,
+            pause=pause,
+            debug=debug,
+            gpu=gpu,
+            browser=browser,
         )
     )
 
@@ -727,6 +864,7 @@ def run(
     pause: bool = False,
     debug_models_dir: str | Path | None = None,
     gpu: bool = True,
+    browser: str | None = None,
 ):
     """
     Command line entry point: collect_models, then render_models.
@@ -754,6 +892,7 @@ def run(
             pause=pause,
             debug=debug_models_dir is not None,
             gpu=gpu,
+            browser=browser,
         )
 
     if len(collected.failed) > 0:
