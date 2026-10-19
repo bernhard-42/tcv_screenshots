@@ -216,15 +216,16 @@ def find_example_files(paths) -> list[Path]:
     Expand files and directories to the example files to run.
 
     A directory stands for its Python files, sorted by name, without the ones
-    starting with "_" (__init__.py, private helpers). A file named twice, e.g.
-    by itself and via its directory, runs once.
+    starting with "_" (__init__.py, private helpers) or "." (hidden files such
+    as macOS's ._*.py metadata). A file named twice, e.g. by itself and via its
+    directory, runs once.
     """
     example_files = []
     for path in paths:
         path = Path(path).resolve()
         if path.is_dir():
             candidates = sorted(
-                f for f in path.glob("*.py") if not f.name.startswith("_")
+                f for f in path.glob("*.py") if not f.name.startswith(("_", "."))
             )
         else:
             candidates = [path]
@@ -257,8 +258,9 @@ def run_example(example_path: Path, models_dir: Path | None = None) -> CollectRe
         result.failed.append(model_name)
         return result
 
-    # Skip files that don't import tcv_screenshots
-    content = example_path.read_text(encoding="utf-8")
+    # Skip files that don't import tcv_screenshots. Only looked at here: a file
+    # that is not valid UTF-8 fails when imported, as Python reads it
+    content = example_path.read_text(encoding="utf-8", errors="replace")
     if "from tcv_screenshots import" not in content and "import tcv_screenshots" not in content:
         print(f"SKIP {model_name}: no tcv_screenshots import")
         return result

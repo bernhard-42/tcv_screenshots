@@ -15,20 +15,22 @@ pip install tcv-screenshots
 playwright install chromium   # only needed without an installed Chrome or Edge
 ```
 
-tcv_screenshots uses an installed Google Chrome or Microsoft Edge when there is one, see [Browser](#browser); `python -m tcv_screenshots --check` shows which one. If you use build123d for creating 3D objects, `build123d` neeeds to be installed, similar for CadQuery.
+tcv_screenshots uses an installed Google Chrome or Microsoft Edge when there is one, see [Browser](#browser); `tcv_screenshots --check` shows which one. If you use build123d for creating 3D objects, `build123d` neeeds to be installed, similar for CadQuery.
 
 ## Usage
 
 ```bash
 # Single file (output to current directory)
-python -m tcv_screenshots -f example.py
+tcv_screenshots -f example.py
 
 # Single file with output folder
-python -m tcv_screenshots -f example.py -o screenshots
+tcv_screenshots -f example.py -o screenshots
 
 # Directory of examples (requires -o)
-python -m tcv_screenshots -d examples -o screenshots
+tcv_screenshots -d examples -o screenshots
 ```
+
+Installing the package puts the `tcv_screenshots` command into the environment's `bin` folder (macOS, Linux) or `Scripts` folder (Windows, `tcv_screenshots.exe`). `python -m tcv_screenshots` does the same, e.g. when that folder is not on the `PATH`.
 
 **Options:**
 

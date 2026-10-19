@@ -26,6 +26,10 @@ v0.4.0
 - No fixed wait before a screenshot (0.3.0 slept 0.5 s per model): an image is captured as soon as the model is drawn ([#4](https://github.com/bernhard-42/tcv_screenshots/issues/4)). The 8 example screenshots take 7.1 s instead of 11.0 s with the GPU (Apple M1 Max), with byte-identical images
 - Studio mode is captured once its anti-aliasing is complete: SMAA loads its lookup textures asynchronously, so the first frame has none. The page captures until two consecutive images agree instead of waiting a fixed time. Before, studio screenshots were taken without SMAA
 
+**Command line**
+
+- `tcv_screenshots -f example.py` instead of `python -m tcv_screenshots -f example.py`: installing the package adds a `tcv_screenshots` command on macOS, Linux and Windows. `python -m tcv_screenshots` still works
+
 **Errors**
 
 - A failing example prints its full traceback, starting at the example's own code ([#6](https://github.com/bernhard-42/tcv_screenshots/issues/6))
@@ -33,6 +37,7 @@ v0.4.0
 - Errors are handled per model: an error in `save_model` fails only that model and the example goes on, and the models an example saved before an error are still rendered
 - `save_model` prints its error with the traceback when it happens, also when a script calls it directly; `get_failed_models()` returns the failed `(name, traceback)` pairs, e.g. for a script's exit status. A leftover 0.3.0 key (`cadWidth=500`) shows up this way instead of silently dropping the screenshot
 - Models saved with `save_model` before a call to `collect_models` are kept; before, the call discarded them silently
+- In an examples directory, hidden files such as the `._*.py` metadata macOS adds to archives are skipped like `_*.py`, and a file that is not valid UTF-8 fails on its own instead of ending the whole run with a `UnicodeDecodeError`
 - When rendering fails in the browser, only the first line of Playwright's message is printed (it can carry the browser's whole log or a JavaScript stack); `--debug` prints all of it plus the Python traceback
 
 **Tests**

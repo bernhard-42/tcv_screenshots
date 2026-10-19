@@ -119,6 +119,25 @@ def test_a_file_named_twice_runs_once(write_example):
     assert names(result.models) == ["once"]
 
 
+
+def test_hidden_files_in_a_directory_are_not_run(write_example):
+    # e.g. the ._*.py metadata files macOS adds to archives and network drives
+    path = write_example("ok", OK_EXAMPLE.format(name="visible"))
+    (path.parent / "._ok.py").write_bytes(b"\x00\x05\x16\x07\x00\x02\x00\x00\xa3")
+    result = collect_models(path.parent)
+    assert names(result.models) == ["visible"]
+    assert result.failed == []
+
+
+def test_a_file_that_is_not_utf8_fails_alone(write_example, capsys):
+    path = write_example("ok", OK_EXAMPLE.format(name="kept"))
+    # a Latin-1 pound sign in code: Python's import raises a SyntaxError
+    (path.parent / "latin.py").write_bytes(b"import tcv_screenshots\n\nprice = '\xa3 5'\n")
+    result = collect_models(path.parent)
+    assert names(result.models) == ["kept"]
+    assert result.failed == ["latin"]
+    assert "FAILURE latin" in capsys.readouterr().out
+
 def test_set_defaults_inside_an_example_does_not_leak(write_example):
     first = write_example(
         "a_sets_defaults",

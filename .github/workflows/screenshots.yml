@@ -47,7 +47,7 @@ jobs:
         run: |
           mkdir -p screenshots
           # Pinned browser and SwiftShader: reproducible, no GPU on runners
-          python -m tcv_screenshots -d examples -o screenshots --browser chromium --no-gpu
+          tcv_screenshots -d examples -o screenshots --browser chromium --no-gpu
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4

@@ -1,8 +1,10 @@
 """The command line: options and exit codes (no browser: these runs render nothing)."""
 
 import os
+import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 
 def run_cli(*args, cwd, env=None):
@@ -22,6 +24,22 @@ def test_help_lists_the_options(tmp_path):
     assert result.returncode == 0
     for option in ("--file", "--directory", "--output-folder", "--no-gpu", "--browser", "--check", "--pause", "--debug"):
         assert option in result.stdout
+
+
+def test_the_installed_command_runs(write_example, tmp_path):
+    # pyproject's [project.scripts] installs `tcv_screenshots` (Scripts\tcv_screenshots.exe
+    # on Windows) next to the interpreter
+    command = shutil.which("tcv_screenshots", path=str(Path(sys.executable).parent))
+    assert command is not None, "tcv_screenshots is not installed next to the interpreter"
+    result = subprocess.run([command, "--help"], capture_output=True, text=True, timeout=300, check=False)
+    assert result.returncode == 0
+    assert result.stdout.startswith("usage: tcv_screenshots")
+    path = write_example("broken", "import tcv_screenshots\n\nraise RuntimeError('broken')\n")
+    result = subprocess.run(
+        [command, "-f", str(path), "-o", str(tmp_path / "out")],
+        capture_output=True, text=True, cwd=tmp_path, timeout=300, check=False,
+    )
+    assert result.returncode == 1
 
 
 def test_a_failing_example_exits_with_1(write_example, tmp_path):
