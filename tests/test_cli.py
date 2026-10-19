@@ -82,10 +82,10 @@ def test_an_example_without_a_browser_fails_with_the_install_hint(write_example,
     path = write_example(
         "ok",
         "from build123d import Box\n"
-        "from tcv_screenshots import save_model, get_saved_models\n"
+        "from tcv_screenshots import screenshot, get_screenshots\n"
         "def main():\n"
-        "    save_model(Box(1, 1, 1), name='box', cad_width=500, height=375)\n"
-        "    return get_saved_models()\n",
+        "    screenshot(Box(1, 1, 1), name='box', cad_width=500, height=375)\n"
+        "    return get_screenshots()\n",
     )
     env = {**os.environ, "PLAYWRIGHT_BROWSERS_PATH": str(tmp_path / "no-browsers")}
     result = run_cli("-f", str(path), "-o", str(tmp_path / "out"), "--browser", "chromium", cwd=tmp_path, env=env)

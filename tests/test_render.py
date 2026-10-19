@@ -15,15 +15,15 @@ from conftest import REPO_EXAMPLES
 from playwright.async_api import async_playwright
 from pngtools import max_difference
 
-from tcv_screenshots import collect_models, get_saved_models, render_models, save_model
+from tcv_screenshots import collect_models, get_screenshots, render_models, screenshot
 from tcv_screenshots.render import png_size, serve_viewer, start_viewer
 
 pytestmark = pytest.mark.browser
 
 
 def message_of(*cad_objs, **kwargs):
-    save_model(*cad_objs, name="tmp", **kwargs)
-    [(_, message)] = get_saved_models()
+    screenshot(*cad_objs, name="tmp", **kwargs)
+    [(_, message)] = get_screenshots()
     return message
 
 

@@ -2,15 +2,15 @@
 
 from build123d import Box
 
-from tcv_screenshots import collect_models, get_saved_models, save_model
+from tcv_screenshots import collect_models, get_screenshots, screenshot
 
 OK_EXAMPLE = """
 from build123d import Box
-from tcv_screenshots import save_model, get_saved_models
+from tcv_screenshots import screenshot, get_screenshots
 
 def main():
-    save_model(Box(1, 1, 1), name="{name}", cad_width=500, height=375)
-    return get_saved_models()
+    screenshot(Box(1, 1, 1), name="{name}", cad_width=500, height=375)
+    return get_screenshots()
 """
 
 
@@ -54,9 +54,9 @@ def test_models_saved_before_an_error_in_main_are_kept(write_example):
     path = write_example(
         "main_error",
         "from build123d import Box\n"
-        "from tcv_screenshots import save_model, get_saved_models\n"
+        "from tcv_screenshots import screenshot, get_screenshots\n"
         "def main():\n"
-        "    save_model(Box(1, 1, 1), name='saved_first')\n"
+        "    screenshot(Box(1, 1, 1), name='saved_first')\n"
         "    raise ValueError('later')\n",
     )
     result = collect_models(path)
@@ -68,32 +68,32 @@ def test_main_must_return_a_list(write_example, capsys):
     path = write_example("returns_none", "import tcv_screenshots\ndef main():\n    return None\n")
     result = collect_models(path)
     assert result.failed == ["returns_none"]
-    assert "main() must return get_saved_models()" in capsys.readouterr().out
+    assert "main() must return get_screenshots()" in capsys.readouterr().out
 
 
 def test_invalid_items_fail_and_valid_ones_are_kept(write_example):
     path = write_example(
         "bad_items",
         "from build123d import Box\n"
-        "from tcv_screenshots import save_model, get_saved_models\n"
+        "from tcv_screenshots import screenshot, get_screenshots\n"
         "def main():\n"
-        "    save_model(Box(1, 1, 1), name='valid')\n"
-        "    return get_saved_models() + [('no_message',), 42]\n",
+        "    screenshot(Box(1, 1, 1), name='valid')\n"
+        "    return get_screenshots() + [('no_message',), 42]\n",
     )
     result = collect_models(path)
     assert names(result.models) == ["valid"]
     assert result.failed == ["bad_items", "bad_items"]
 
 
-def test_a_failing_save_model_fails_only_its_model_and_is_printed_once(write_example, capsys):
+def test_a_failing_screenshot_fails_only_its_model_and_is_printed_once(write_example, capsys):
     path = write_example(
         "save_error",
         "from build123d import Box\n"
-        "from tcv_screenshots import save_model, get_saved_models\n"
+        "from tcv_screenshots import screenshot, get_screenshots\n"
         "def main():\n"
-        "    save_model(Box(1, 1, 1), name='bad_one', cadWidth=500)\n"
-        "    save_model(Box(1, 1, 1), name='good_one')\n"
-        "    return get_saved_models()\n",
+        "    screenshot(Box(1, 1, 1), name='bad_one', cadWidth=500)\n"
+        "    screenshot(Box(1, 1, 1), name='good_one')\n"
+        "    return get_screenshots()\n",
     )
     result = collect_models(path)
     assert names(result.models) == ["good_one"]
@@ -106,11 +106,11 @@ def test_a_failing_save_model_fails_only_its_model_and_is_printed_once(write_exa
 
 
 def test_models_saved_before_collect_models_are_kept(write_example):
-    save_model(Box(1, 1, 1), name="mine")
+    screenshot(Box(1, 1, 1), name="mine")
     path = write_example("ok", OK_EXAMPLE.format(name="from_example"))
     result = collect_models(path)
     assert names(result.models) == ["from_example"]
-    assert names(get_saved_models()) == ["mine"]
+    assert names(get_screenshots()) == ["mine"]
 
 
 def test_a_file_named_twice_runs_once(write_example):
@@ -142,11 +142,11 @@ def test_set_defaults_inside_an_example_does_not_leak(write_example):
     first = write_example(
         "a_sets_defaults",
         "from build123d import Box\n"
-        "from tcv_screenshots import save_model, get_saved_models, set_defaults\n"
+        "from tcv_screenshots import screenshot, get_screenshots, set_defaults\n"
         "def main():\n"
         "    set_defaults(cad_width=777)\n"
-        "    save_model(Box(1, 1, 1), name='first')\n"
-        "    return get_saved_models()\n",
+        "    screenshot(Box(1, 1, 1), name='first')\n"
+        "    return get_screenshots()\n",
     )
     write_example("b_plain", OK_EXAMPLE.format(name="second").replace(", cad_width=500, height=375", ""))
     result = collect_models(first.parent)

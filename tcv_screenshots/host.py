@@ -9,6 +9,7 @@ is not sent anywhere, it is collected and rendered later by `render.py`.
 
 import contextlib
 import traceback
+import warnings
 from pathlib import Path
 from textwrap import indent
 from typing import Any
@@ -19,7 +20,7 @@ from ocp_viewer_core.show import Viewer
 
 # Defaults of a screenshot, in the keyword names of `show`.
 # They are the host's workspace config: every key here can be overridden by
-# `set_defaults` and per call by the same keyword of `save_model`.
+# `set_defaults` and per call by the same keyword of `screenshot`.
 DEFAULT_CONFIG = {
     # Display options
     "cad_width": 1200,
@@ -56,7 +57,7 @@ class ScreenshotComms(Comms[dict]):
     The transport of a screenshot run: there is no viewer to talk to.
 
     `send_data` hands the finished data message back as the handle of `show`,
-    so `save_model` receives exactly what another host would put on the wire.
+    so `screenshot` receives exactly what another host would put on the wire.
     """
 
     def status(self) -> dict:
@@ -71,7 +72,7 @@ class ScreenshotComms(Comms[dict]):
 
     def send_config(self, config: Any, timeit: bool = False) -> None:
         # `set_defaults` also pushes the settings to a running viewer; a
-        # screenshot has none, the defaults apply from the next save_model on
+        # screenshot has none, the defaults apply from the next screenshot call on
         return None
 
     def send_backend(self, data: Any, timeit: bool = False) -> None:
@@ -83,8 +84,8 @@ class ScreenshotComms(Comms[dict]):
 viewer = Viewer[dict](Config(Session(ScreenshotComms()), EXCLUDE_KEYS))
 
 # The defaults functions of ocp_vscode, from the same core: `set_defaults`
-# takes the keywords of `show` and applies them to every following save_model,
-# over DEFAULT_CONFIG and under the keywords of a single save_model call
+# takes the keywords of `show` and applies them to every following screenshot
+# call, over DEFAULT_CONFIG and under the keywords of a single call
 set_defaults = viewer.config.set_defaults
 get_defaults = viewer.config.get_defaults
 
@@ -109,10 +110,10 @@ def isolated_defaults():
     finally:
         viewer.config.defaults = saved
 
-# Model collector, filled by save_model
+# Model collector, filled by screenshot
 _saved_models: list[tuple[str, dict]] = []
 
-# Models save_model could not create, with the traceback of the error
+# Models screenshot could not create, with the traceback of the error
 _failed_models: list[tuple[str, traceback.TracebackException]] = []
 
 
@@ -122,7 +123,7 @@ def isolated_collector():
     Run examples without touching what the caller has saved so far.
 
     Each example starts with an empty collector, so the models and failures a
-    script recorded with save_model before running examples are set aside and
+    script recorded with screenshot before running examples are set aside and
     put back at the end of the block. What examples left behind is dropped:
     their models were handed over or reported already.
     """
@@ -137,12 +138,14 @@ def isolated_collector():
         _failed_models[:] = failed
 
 
-def save_model(*cad_objs, name: str, **kwargs) -> None:
+def screenshot(*cad_objs, name: str, **kwargs) -> None:
     """
-    Save CAD objects as one screenshot.
+    Request a screenshot of CAD objects, as `show` would display them.
 
-    Call this at different points in your example code to capture
-    incremental states. Then have main() return get_saved_models().
+    Nothing is rendered yet: the request is collected, and get_screenshots()
+    hands the collected ones over for rendering. Call this at different points
+    in your example code to capture incremental states. Then have main()
+    return get_screenshots().
 
     Args:
         cad_objs: CAD objects to render, like the positional arguments of `show`
@@ -156,7 +159,7 @@ def save_model(*cad_objs, name: str, **kwargs) -> None:
     is nothing to record.
     """
     if not isinstance(name, str) or name == "":
-        raise ValueError("save_model needs a non-empty name")
+        raise ValueError("screenshot needs a non-empty name")
 
     # No tessellation progress characters in the screenshot log. "" and not
     # None: show() drops None keywords and then falls back to its default
@@ -165,16 +168,32 @@ def save_model(*cad_objs, name: str, **kwargs) -> None:
     try:
         message = viewer.show(*cad_objs, **kwargs)
         if message is None:
-            raise ValueError(f"save_model('{name}'): nothing to render")
+            raise ValueError(f"screenshot('{name}'): nothing to render")
     except Exception as error:
         trace = _traceback_with_caller(error)
         # Printed here and not by whoever collects the models: a script that
-        # calls save_model directly would otherwise never hear of the error
+        # calls screenshot directly would otherwise never hear of the error
         _print_failure(name, trace)
         _failed_models.append((name, trace))
         return
 
     _saved_models.append((name, message))
+
+
+def save_model(*cad_objs, name: str, **kwargs) -> None:
+    """Deprecated name of screenshot(), same arguments."""
+    _warn_deprecated("save_model", "screenshot")
+    screenshot(*cad_objs, name=name, **kwargs)
+
+
+def _warn_deprecated(old: str, new: str) -> None:
+    # FutureWarning, not DeprecationWarning: examples run as imported modules,
+    # where Python's default filters hide DeprecationWarning
+    warnings.warn(
+        f"{old}() is deprecated, use {new}() with the same arguments",
+        FutureWarning,
+        stacklevel=3,
+    )
 
 
 # Files of this package; their frames in front of the caller's code are the
@@ -189,12 +208,18 @@ def _is_runner_frame(filename: str) -> bool:
     return Path(filename).resolve().parent == _PACKAGE_DIR
 
 
+# The functions a user calls to request a screenshot; the traceback of a
+# failure starts at the code calling the outermost of them
+_API_NAMES = ("screenshot", "save_model")
+
+
 def _print_failure(name: str, trace: traceback.TracebackException) -> None:
     """
     Print a FAILURE line with the error, followed by its traceback.
 
-    The traceback starts at the code that called save_model: walking back from
-    save_model's own frame, it stops at the first frame of the runner (command
+    The traceback starts at the code that called screenshot: walking back from
+    the outermost frame of screenshot (or its deprecated name save_model), it
+    stops at the first frame of the runner (command
     line, collect_models, the import machinery). The frames in front of it,
     including a script that called collect_models, would only bury the
     relevant part.
@@ -203,8 +228,9 @@ def _print_failure(name: str, trace: traceback.TracebackException) -> None:
     this_file = Path(__file__).resolve()
     end = len(frames) - 1
     for i, frame in enumerate(frames):
-        if frame.name == "save_model" and Path(frame.filename).resolve() == this_file:
+        if frame.name in _API_NAMES and Path(frame.filename).resolve() == this_file:
             end = i
+            break
     first = end
     while first > 0 and not _is_runner_frame(frames[first - 1].filename):
         first -= 1
@@ -217,11 +243,11 @@ def _print_failure(name: str, trace: traceback.TracebackException) -> None:
 
 def _traceback_with_caller(error: Exception) -> traceback.TracebackException:
     """
-    Traceback of an error caught in save_model, including its callers.
+    Traceback of an error caught in screenshot, including its callers.
 
     A caught exception's traceback starts at the frame that caught it, so it
-    would not show the line of the example that called save_model. Prepend
-    the frames above save_model (the last one of extract_stack is save_model
+    would not show the line of the example that called screenshot. Prepend
+    the frames above screenshot (the last one of extract_stack is screenshot
     itself, which the traceback already starts with).
     """
     callers = traceback.extract_stack()[:-2]
@@ -230,9 +256,9 @@ def _traceback_with_caller(error: Exception) -> traceback.TracebackException:
     return trace
 
 
-def get_saved_models() -> list[tuple[str, dict]]:
+def get_screenshots() -> list[tuple[str, dict]]:
     """
-    Get all saved models and clear the collector.
+    Get the screenshots requested so far and clear the list.
 
     Returns:
         List of (name, message) tuples, message being the core's data message
@@ -242,11 +268,17 @@ def get_saved_models() -> list[tuple[str, dict]]:
     return models
 
 
+def get_saved_models() -> list[tuple[str, dict]]:
+    """Deprecated name of get_screenshots()."""
+    _warn_deprecated("get_saved_models", "get_screenshots")
+    return get_screenshots()
+
+
 def get_failed_models() -> list[tuple[str, traceback.TracebackException]]:
     """
-    Get all models save_model could not create, and clear that list.
+    Get all screenshots that screenshot() could not create, and clear that list.
 
-    save_model has printed each of them already; a script uses this to decide
+    screenshot() has printed each of them already; a script uses this to decide
     its exit status.
 
     Returns:

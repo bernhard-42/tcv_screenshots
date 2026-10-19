@@ -3,7 +3,7 @@
 Headless CAD model renderer.
 
 1. collect_models: runs example files (each must have a main() returning
-   get_saved_models()) and collects their models
+   get_screenshots()) and collects their models
 2. render_models: renders models to PNG screenshots
 
 `run` combines both for the command line.
@@ -33,7 +33,7 @@ from playwright.async_api import async_playwright
 from tcv_screenshots.host import (
     clear_saved_models,
     get_failed_models,
-    get_saved_models,
+    get_screenshots,
     isolated_collector,
     isolated_defaults,
 )
@@ -239,10 +239,10 @@ def run_example(example_path: Path, models_dir: Path | None = None) -> CollectRe
     """
     Run one example file and collect the models it saved.
 
-    The example's main() must return get_saved_models(), i.e. a list of
-    (name, message) tuples created by save_model().
+    The example's main() must return get_screenshots(), i.e. a list of
+    (name, message) tuples created by screenshot().
 
-    Errors are handled per model where possible: a failing save_model() call
+    Errors are handled per model where possible: a failing screenshot() call
     fails only its own model, and the models the example saved before raising
     an error are still returned.
 
@@ -282,9 +282,9 @@ def run_example(example_path: Path, models_dir: Path | None = None) -> CollectRe
     except Exception as e:
         error = e
         # The models saved before the error are still rendered
-        returned = get_saved_models()
+        returned = get_screenshots()
 
-    # save_model() prints and records its errors instead of raising them, so
+    # screenshot() prints and records its errors instead of raising them, so
     # the example went on after them; count them here
     for output_name, _trace in get_failed_models():
         result.failed.append(output_name)
@@ -294,10 +294,10 @@ def run_example(example_path: Path, models_dir: Path | None = None) -> CollectRe
         report_failure(model_name, trace, example_path)
         result.failed.append(model_name)
 
-    # Expect list from get_saved_models(): [(name, message), ...]
+    # Expect list from get_screenshots(): [(name, message), ...]
     if not isinstance(returned, list):
         print(
-            f"FAILURE {model_name}: main() must return get_saved_models(), "
+            f"FAILURE {model_name}: main() must return get_screenshots(), "
             f"got {type(returned).__name__}"
         )
         result.failed.append(model_name)
@@ -314,7 +314,7 @@ def run_example(example_path: Path, models_dir: Path | None = None) -> CollectRe
             models_to_process.append(item)
         else:
             print(
-                f"FAILURE {model_name}: invalid item in get_saved_models(): "
+                f"FAILURE {model_name}: invalid item in get_screenshots(): "
                 f"{item!r:.80}"
             )
             result.failed.append(model_name)
@@ -669,7 +669,7 @@ async def render_models_async(
 
     Args:
         models: (name, message) tuples, from collect_models(...).models or
-            get_saved_models()
+            get_screenshots()
         output_dir: Directory for the PNG files, created if missing
         headless: Run browser in headless mode
         pause: Pause before each screenshot for debugging
@@ -832,7 +832,7 @@ def render_models(
 
     Args:
         models: (name, message) tuples, from collect_models(...).models or
-            get_saved_models()
+            get_screenshots()
         output_dir: Directory for the PNG files, created if missing
         headless: Run browser in headless mode
         pause: Pause before each screenshot for debugging

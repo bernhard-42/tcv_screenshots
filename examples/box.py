@@ -5,9 +5,9 @@ box = fillet(box.edges(), 0.1)
 
 
 def main():
-    from tcv_screenshots import Render, save_model, get_saved_models
+    from tcv_screenshots import Render, screenshot, get_screenshots
 
-    save_model(box, name="faces_only", cad_width=500, height=375, modes=[Render.FACES])
-    save_model(box, name="edges_only", cad_width=500, height=375, modes=[Render.EDGES])
+    screenshot(box, name="faces_only", cad_width=500, height=375, modes=[Render.FACES])
+    screenshot(box, name="edges_only", cad_width=500, height=375, modes=[Render.EDGES])
 
-    return get_saved_models()
+    return get_screenshots()

@@ -18,8 +18,10 @@ from tcv_screenshots.host import (
     get_defaults,
     get_failed_models,
     get_saved_models,
+    get_screenshots,
     reset_defaults,
     save_model,
+    screenshot,
     set_defaults,
 )
 from tcv_screenshots.render import (
@@ -33,6 +35,9 @@ from tcv_screenshots.render import (
 __version__ = "0.4.0"
 
 __all__ = [
+    "screenshot",
+    "get_screenshots",
+    # deprecated names of screenshot and get_screenshots
     "save_model",
     "get_saved_models",
     "get_failed_models",

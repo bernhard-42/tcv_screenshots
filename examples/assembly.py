@@ -23,10 +23,10 @@ c1 = Compound(label="c1", children=[s1, c2, c3])
 
 
 def main():
-    from tcv_screenshots import save_model, get_saved_models
+    from tcv_screenshots import screenshot, get_screenshots
 
-    save_model(
+    screenshot(
         c1, name="assembly", cad_width=800, height=600, zoom=1.4, reset_camera="front"
     )
 
-    return get_saved_models()
+    return get_screenshots()

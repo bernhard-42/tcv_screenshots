@@ -46,7 +46,7 @@ Installing the package puts the `tcv_screenshots` command into the environment's
 
 ## Writing Examples
 
-Create a Python file with a `main()` function that uses `save_model` and returns `get_saved_models()`:
+Create a Python file with a `main()` function that uses `screenshot` and returns `get_screenshots()`:
 
 ```python
 from build123d import *
@@ -54,13 +54,13 @@ from build123d import *
 model = Box(10, 20, 30)
 
 def main():
-    from tcv_screenshots import save_model, get_saved_models
+    from tcv_screenshots import screenshot, get_screenshots
 
-    save_model(model, name="box", cad_width=800, height=600)
-    return get_saved_models()
+    screenshot(model, name="box", cad_width=800, height=600)
+    return get_screenshots()
 ```
 
-`save_model(*cad_objs, name, **kwargs)` takes the CAD objects like `show` of [OCP CAD Viewer](https://github.com/bernhard-42/vscode-ocp-cad-viewer), a `name` for the PNG file, and any keyword of `show`, e.g. `colors`, `alphas`, `modes`, `materials`, `render_joints`, `reset_camera` or the `studio_*` options. Both use the same pipeline ([ocp-viewer-core](https://github.com/bernhard-42/ocp-viewer-core)), so the same call gives the same result as in the viewer. Objects with a `material` (e.g. from bd_materials) are rendered with it.
+`screenshot(*cad_objs, name, **kwargs)` takes the CAD objects like `show` of [OCP CAD Viewer](https://github.com/bernhard-42/vscode-ocp-cad-viewer), a `name` for the PNG file, and any keyword of `show`, e.g. `colors`, `alphas`, `modes`, `materials`, `render_joints`, `reset_camera` or the `studio_*` options. Both use the same pipeline ([ocp-viewer-core](https://github.com/bernhard-42/ocp-viewer-core)), so the same call gives the same result as in the viewer. Objects with a `material` (e.g. from bd_materials) are rendered with it.
 
 ### Multiple Models per Example
 
@@ -79,15 +79,15 @@ filleted = fillet(box.edges(), 1)
 final = filleted - Cylinder(2, 10)
 
 def main():
-    from tcv_screenshots import Render, save_model, get_saved_models
+    from tcv_screenshots import Render, screenshot, get_screenshots
 
     size = {"cad_width": 500, "height": 375}
 
-    save_model(box, name="step1_box", **size)
-    save_model(filleted, name="step2_fillet", **size)
-    save_model(final, name="step3_hole", modes=[Render.FACES], **size)
+    screenshot(box, name="step1_box", **size)
+    screenshot(filleted, name="step2_fillet", **size)
+    screenshot(final, name="step3_hole", modes=[Render.FACES], **size)
 
-    return get_saved_models()
+    return get_screenshots()
 ```
 
 This generates `step1_box.png`, `step2_fillet.png`, and `step3_hole.png`.
@@ -103,9 +103,9 @@ def create_hexapod():
 hexapod = create_hexapod()
 
 def main():
-    from tcv_screenshots import save_model, get_saved_models
+    from tcv_screenshots import screenshot, get_screenshots
 
-    save_model(
+    screenshot(
         hexapod,
         name="hexapod",
         cad_width=800,
@@ -123,7 +123,7 @@ def main():
         zoom=1.2,
     )
 
-    return get_saved_models()
+    return get_screenshots()
 ```
 
 ![hexapod](screenshots/hexapod.png)
@@ -150,7 +150,7 @@ Every keyword of `show`, see [OCP CAD Viewer's show command](https://github.com/
 
 Every screenshot starts with a fresh viewer, so no setting carries over from one screenshot to the next.
 
-Use `--no-headless --pause` to adjust the view by hand; the camera values (`position`, `quaternion`, `target`, `zoom`) are printed before each screenshot and can be passed to `save_model`.
+Use `--no-headless --pause` to adjust the view by hand; the camera values (`position`, `quaternion`, `target`, `zoom`) are printed before each screenshot and can be passed to `screenshot`.
 
 ## Scripted Use
 
@@ -161,31 +161,31 @@ from build123d import Box
 from tcv_screenshots import (
     collect_models,
     get_failed_models,
-    get_saved_models,
+    get_screenshots,
     render_models,
-    save_model,
+    screenshot,
     set_defaults,
 )
 
-# Defaults for every following save_model, the keywords of `show`
+# Defaults for every following screenshot call, the keywords of `show`
 set_defaults(cad_width=1000, height=1000)
 
 # Run example files and directories of examples (each with a main() as above)
 collected = collect_models("examples", "more/extra_example.py")
 
 # Or save models directly, without example files
-save_model(Box(1, 2, 3), name="box")
+screenshot(Box(1, 2, 3), name="box")
 failed_saves = [name for name, _traceback in get_failed_models()]
 
-rendered = render_models(collected.models + get_saved_models(), "screenshots")
+rendered = render_models(collected.models + get_screenshots(), "screenshots")
 print(rendered.written)                                    # the PNG files
 print(collected.failed + failed_saves + rendered.failed)  # names of what failed
 ```
 
-- `collect_models(*paths, models_dir=None)` returns a `CollectResult` with `models` and `failed`. Each example runs with the defaults set before the call; a `set_defaults` inside one example does not reach the next. Models a script saved with `save_model` before the call stay in the collector for `get_saved_models()`. With `models_dir`, every model's JSON is saved there.
+- `collect_models(*paths, models_dir=None)` returns a `CollectResult` with `models` and `failed`. Each example runs with the defaults set before the call; a `set_defaults` inside one example does not reach the next. Screenshots a script requested with `screenshot` before the call stay in the collector for `get_screenshots()`. With `models_dir`, every model's JSON is saved there.
 - `render_models(models, output_dir, *, headless=True, pause=False, debug=False, gpu=True, browser=None)` writes `<output_dir>/<name>.png` and returns a `RenderResult` with `written` and `failed`. In an environment that already runs an event loop (e.g. Jupyter), use `await render_models_async(...)` with the same arguments.
 - Neither function exits: failures are printed, with tracebacks, and returned.
-- `save_model` does not raise either: a model it cannot create is printed as `FAILURE` with its traceback, and `get_failed_models()` returns the `(name, traceback)` pairs since the last call. `collect_models` counts these in its `failed`; a script that calls `save_model` itself reads them with `get_failed_models()`.
+- `screenshot` does not raise either: a model it cannot create is printed as `FAILURE` with its traceback, and `get_failed_models()` returns the `(name, traceback)` pairs since the last call. `collect_models` counts these in its `failed`; a script that calls `screenshot` itself reads them with `get_failed_models()`.
 
 ## GPU Rendering
 
@@ -220,14 +220,14 @@ An installed Chrome or Edge updates itself, so screenshots can change slightly b
 
 ## Migration from 0.3.0
 
-0.4.0 renders through [ocp-viewer-core](https://github.com/bernhard-42/ocp-viewer-core), the pipeline of OCP CAD Viewer, with three-cad-viewer 5.1.3 instead of 3.6.3. `save_model` therefore takes the arguments of `show` instead of a config dict. Example files and the command line keep working once their `save_model` calls are converted. Code that used internals of `tcv_screenshots.render` has to move to the functions of [Scripted Use](#scripted-use).
+0.4.0 renders through [ocp-viewer-core](https://github.com/bernhard-42/ocp-viewer-core), the pipeline of OCP CAD Viewer, with three-cad-viewer 5.1.3 instead of 3.6.3. `save_model` is now `screenshot`, and it takes the arguments of `show` instead of a config dict; `get_saved_models` is now `get_screenshots`. The old names still work with the new arguments, but are deprecated and print a `FutureWarning`. Example files and the command line keep working once their `save_model` calls are converted. Code that used internals of `tcv_screenshots.render` has to move to the functions of [Scripted Use](#scripted-use).
 
-### `save_model` calls
+### `save_model` calls become `screenshot` calls
 
 | 0.3.0                                                      | 0.4.0                                                    |
 | ---------------------------------------------------------- | -------------------------------------------------------- |
-| `save_model(box, "box", {"cadWidth": 500, "height": 375})` | `save_model(box, name="box", cad_width=500, height=375)` |
-| `save_model([box, cyl], "pair", config)`                   | `save_model(box, cyl, name="pair", ...)`                 |
+| `save_model(box, "box", {"cadWidth": 500, "height": 375})` | `screenshot(box, name="box", cad_width=500, height=375)` |
+| `save_model([box, cyl], "pair", config)`                   | `screenshot(box, cyl, name="pair", ...)`                 |
 | `{"colors": ["red", "blue"], "alphas": [0.5, 1.0]}`        | `colors=["red", "blue"], alphas=[0.5, 1.0]`              |
 | `{"render_edges": False}`                                  | `modes=[Render.FACES]`                                   |
 | `{"render_faces": False}`                                  | `modes=[Render.EDGES]`                                   |
@@ -254,11 +254,11 @@ Unchanged: `height`, `theme`, `glass`, `tools`, `ortho`, `up`, `axes`, `transpar
 
 | 0.3.0                                                                                                    | 0.4.0                                                                                                                    |
 | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `get_saved_models()` returns `(model, name, config)` tuples                                              | returns `(name, message)` tuples, `message` being ocp-viewer-core's data message; pass them to `render_models` unchanged |
+| `get_saved_models()` returns `(model, name, config)` tuples                                              | `get_screenshots()` returns `(name, message)` tuples, `message` being ocp-viewer-core's data message; pass them to `render_models` unchanged |
 | `tcv_screenshots.render.process_examples(examples)`                                                      | `collect_models(*paths)`, returns a `CollectResult`                                                                      |
 | `await tcv_screenshots.render.render_models_to_screenshots(models, dir)`, returns the number of failures | `render_models(models, dir)` or `await render_models_async(models, dir)`, returns a `RenderResult`                       |
-| `tcv_screenshots.render.DEFAULT_CONFIG`, merged into each config                                         | `set_defaults(...)` with `show` keywords, before the `save_model` calls                                                  |
-| model data built with ocp_tessellate's `export_three_cad_viewer_js` as `{"model": ..., "config": ...}`   | not understood by the new viewer page; create every model with `save_model`                                              |
+| `tcv_screenshots.render.DEFAULT_CONFIG`, merged into each config                                         | `set_defaults(...)` with `show` keywords, before the `screenshot` calls                                                  |
+| model data built with ocp_tessellate's `export_three_cad_viewer_js` as `{"model": ..., "config": ...}`   | not understood by the new viewer page; create every model with `screenshot`                                              |
 
 A build script that imported its model modules and rendered their saved models looked like this in 0.3.0:
 
@@ -279,28 +279,28 @@ if asyncio.run(render_models_to_screenshots(models, destination)) > 0:
 In 0.4.0:
 
 ```python
-from tcv_screenshots import get_failed_models, get_saved_models, render_models, set_defaults
+from tcv_screenshots import get_failed_models, get_screenshots, render_models, set_defaults
 
-# Defaults apply when save_model is called, so set them first
+# Defaults apply when screenshot is called, so set them first
 set_defaults(cad_width=1000, height=1000)
 
-# ... import the modules that call save_model ...
+# ... import the modules that call screenshot ...
 
-# save_model has printed its errors; collect them for the exit status
+# screenshot has printed its errors; collect them for the exit status
 failed = [name for name, _traceback in get_failed_models()]
-result = render_models(get_saved_models(), destination)
+result = render_models(get_screenshots(), destination)
 if len(failed) > 0 or len(result.failed) > 0:
     sys.exit(1)
 ```
 
-A camera computed by the script goes to `save_model` as keywords: `position=`, `quaternion=`, `target=`, `zoom=`.
+A camera computed by the script goes to `screenshot` as keywords: `position=`, `quaternion=`, `target=`, `zoom=`.
 
 ### Behaviour changes
 
 - Every screenshot starts with a fresh viewer: settings of one screenshot (clipping, transparency, camera, tab) no longer carry over to the next.
 - Rendering uses the GPU by default; 0.3.0 always used the software renderer SwiftShader. In CI without a GPU, add `--no-gpu` (images then match what 0.4.0 renders with SwiftShader elsewhere).
 - The command line exits with status 1 when an example fails to load or run, not only when rendering fails.
-- An error in `save_model` no longer raises: it is printed with its traceback, the model is recorded as failed (`get_failed_models()`), and the code calling `save_model` goes on. A leftover 0.3.0 key such as `cadWidth=500` shows up this way, as `TypeError: ... unexpected keyword argument 'cadWidth'`.
+- An error in `screenshot` (formerly `save_model`) no longer raises: it is printed with its traceback, the screenshot is recorded as failed (`get_failed_models()`), and the code calling `screenshot` goes on. A leftover 0.3.0 key such as `cadWidth=500` shows up this way, as `TypeError: ... unexpected keyword argument 'cadWidth'`.
 
 ## CI/CD
 

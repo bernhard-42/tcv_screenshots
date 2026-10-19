@@ -6,9 +6,9 @@ cyl = Cylinder(0.3, 2)
 
 
 def main():
-    from tcv_screenshots import save_model, get_saved_models
+    from tcv_screenshots import screenshot, get_screenshots
 
-    save_model(
+    screenshot(
         box,
         cyl,
         name="box_cyl_colors",
@@ -18,4 +18,4 @@ def main():
         alphas=[0.5, 1.0],
     )
 
-    return get_saved_models()
+    return get_screenshots()

@@ -379,9 +379,9 @@ hexapod = create_hexapod()
 
 
 def main():
-    from tcv_screenshots import save_model, get_saved_models
+    from tcv_screenshots import screenshot, get_screenshots
 
-    save_model(
+    screenshot(
         hexapod,
         name="hexapod",
         cad_width=800,
@@ -408,4 +408,4 @@ def main():
         zoom=1.2,
     )
 
-    return get_saved_models()
+    return get_screenshots()

@@ -2,14 +2,15 @@ v0.4.0
 
 **API Changes (breaking)**
 
-- `save_model(*cad_objs, name, **kwargs)` takes the same objects and keywords as `show` of OCP CAD Viewer, instead of `save_model(model, name, config)` with a config dict of renderer names ([#2](https://github.com/bernhard-42/tcv_screenshots/issues/2)). Migration: `save_model(box, "box", {"cadWidth": 500, "height": 375})` becomes `save_model(box, name="box", cad_width=500, height=375)`; config keys become `show` keywords (`clipSlider0` → `clip_slider_0`, `blackEdges` → `black_edges`, ...)
+- `save_model` is renamed to `screenshot` and `get_saved_models` to `get_screenshots`: `save_model` stored nothing on disk and its result was a screenshot request (objects, camera and display settings), not a model. The old names still work with the same arguments, but are deprecated and print a `FutureWarning` (shown also for examples, where Python hides a `DeprecationWarning`)
+- `screenshot(*cad_objs, name, **kwargs)` takes the same objects and keywords as `show` of OCP CAD Viewer, instead of `save_model(model, name, config)` with a config dict of renderer names ([#2](https://github.com/bernhard-42/tcv_screenshots/issues/2)). Migration: `save_model(box, "box", {"cadWidth": 500, "height": 375})` becomes `screenshot(box, name="box", cad_width=500, height=375)`; config keys become `show` keywords (`clipSlider0` → `clip_slider_0`, `blackEdges` → `black_edges`, ...)
 - `render_edges=False` becomes `modes=[Render.FACES]`, `render_faces=False` becomes `modes=[Render.EDGES]`
 - All keywords of `show` work, among them `colors`, `alphas` ([#1](https://github.com/bernhard-42/tcv_screenshots/issues/1)), `materials`, `render_joints`, `render_mates` and the `studio_*` options
 - Objects with a `material` attribute, e.g. from bd_materials, are rendered with it, also in studio mode (`tab="studio"`) ([#7](https://github.com/bernhard-42/tcv_screenshots/issues/7))
 - The option enums of `show` (`Camera`, `Collapse`, `Render`, `UiTab`, `Studio*`, `AnalysisTool`) can be imported from `tcv_screenshots`
-- `get_saved_models()` returns `(name, message)` tuples, message being the data message of ocp-viewer-core
+- `get_screenshots()` returns `(name, message)` tuples, message being the data message of ocp-viewer-core
 - Script-driven use without the command line ([#3](https://github.com/bernhard-42/tcv_screenshots/issues/3)): `collect_models(*paths)` runs example files and directories and returns their models, `render_models(models, output_dir)` (or `await render_models_async(...)`) renders them; both return what was written and what failed instead of exiting. `process_examples` and `render_models_to_screenshots` are replaced by them
-- `set_defaults`, `reset_defaults` and `get_defaults` as in OCP CAD Viewer: defaults for all following `save_model` calls, over the screenshot defaults
+- `set_defaults`, `reset_defaults` and `get_defaults` as in OCP CAD Viewer: defaults for all following `screenshot` calls, over the screenshot defaults
 
 **Rendering**
 
@@ -34,15 +35,15 @@ v0.4.0
 
 - A failing example prints its full traceback, starting at the example's own code ([#6](https://github.com/bernhard-42/tcv_screenshots/issues/6))
 - Any failure while processing examples (error at import, error in `main()`, `main()` not returning a list, invalid items) makes the CLI exit with status 1. Before, only rendering failures did, so a CI job stayed green when every example was broken
-- Errors are handled per model: an error in `save_model` fails only that model and the example goes on, and the models an example saved before an error are still rendered
-- `save_model` prints its error with the traceback when it happens, also when a script calls it directly; `get_failed_models()` returns the failed `(name, traceback)` pairs, e.g. for a script's exit status. A leftover 0.3.0 key (`cadWidth=500`) shows up this way instead of silently dropping the screenshot
-- Models saved with `save_model` before a call to `collect_models` are kept; before, the call discarded them silently
+- Errors are handled per model: an error in `screenshot` fails only that model and the example goes on, and the models an example saved before an error are still rendered
+- `screenshot` prints its error with the traceback when it happens, also when a script calls it directly; `get_failed_models()` returns the failed `(name, traceback)` pairs, e.g. for a script's exit status. A leftover 0.3.0 key (`cadWidth=500`) shows up this way instead of silently dropping the screenshot
+- Screenshots requested with `screenshot` before a call to `collect_models` are kept; before, the call discarded them silently
 - In an examples directory, hidden files such as the `._*.py` metadata macOS adds to archives are skipped like `_*.py`, and a file that is not valid UTF-8 fails on its own instead of ending the whole run with a `UnicodeDecodeError`
 - When rendering fails in the browser, only the first line of Playwright's message is printed (it can carry the browser's whole log or a JavaScript stack); `--debug` prints all of it plus the Python traceback
 
 **Tests**
 
-- A test suite (pytest, in the `dev` extra): fast tests for `save_model`, the defaults, `collect_models`, failure reporting, exit codes and the local server, and browser tests (`-m browser`) for rendering, image sizes, no settings carried over between screenshots, studio mode and the browser restart. `--no-gpu` renders the browser tests with SwiftShader; the example CI workflow runs them that way
+- A test suite (pytest, in the `dev` extra): fast tests for `screenshot` and its deprecated names, the defaults, `collect_models`, failure reporting, exit codes and the local server, and browser tests (`-m browser`) for rendering, image sizes, no settings carried over between screenshots, studio mode and the browser restart. `--no-gpu` renders the browser tests with SwiftShader; the example CI workflow runs them that way
 
 **Examples**
 
