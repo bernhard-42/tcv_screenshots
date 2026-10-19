@@ -1,4 +1,4 @@
-v0.4.0
+v1.0.0
 
 **API Changes (breaking)**
 

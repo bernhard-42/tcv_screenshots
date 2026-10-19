@@ -220,11 +220,11 @@ An installed Chrome or Edge updates itself, so screenshots can change slightly b
 
 ## Migration from 0.3.0
 
-0.4.0 renders through [ocp-viewer-core](https://github.com/bernhard-42/ocp-viewer-core), the pipeline of OCP CAD Viewer, with three-cad-viewer 5.1.3 instead of 3.6.3. `save_model` is now `screenshot`, and it takes the arguments of `show` instead of a config dict; `get_saved_models` is now `get_screenshots`. The old names still work with the new arguments, but are deprecated and print a `FutureWarning`. Example files and the command line keep working once their `save_model` calls are converted. Code that used internals of `tcv_screenshots.render` has to move to the functions of [Scripted Use](#scripted-use).
+1.0.0 renders through [ocp-viewer-core](https://github.com/bernhard-42/ocp-viewer-core), the pipeline of OCP CAD Viewer, with three-cad-viewer 5.1.3 instead of 3.6.3. `save_model` is now `screenshot`, and it takes the arguments of `show` instead of a config dict; `get_saved_models` is now `get_screenshots`. The old names still work with the new arguments, but are deprecated and print a `FutureWarning`. Example files and the command line keep working once their `save_model` calls are converted. Code that used internals of `tcv_screenshots.render` has to move to the functions of [Scripted Use](#scripted-use).
 
 ### `save_model` calls become `screenshot` calls
 
-| 0.3.0                                                      | 0.4.0                                                    |
+| 0.3.0                                                      | 1.0.0                                                    |
 | ---------------------------------------------------------- | -------------------------------------------------------- |
 | `save_model(box, "box", {"cadWidth": 500, "height": 375})` | `screenshot(box, name="box", cad_width=500, height=375)` |
 | `save_model([box, cyl], "pair", config)`                   | `screenshot(box, cyl, name="pair", ...)`                 |
@@ -233,14 +233,14 @@ An installed Chrome or Edge updates itself, so screenshots can change slightly b
 | `{"render_faces": False}`                                  | `modes=[Render.EDGES]`                                   |
 
 - `name` is a keyword argument now.
-- Pass several objects as separate positional arguments. 0.3.0 split a list into its objects; 0.4.0 shows a list as one object, so `colors` and `alphas` apply to it as a whole.
+- Pass several objects as separate positional arguments. 0.3.0 split a list into its objects; 1.0.0 shows a list as one object, so `colors` and `alphas` apply to it as a whole.
 - `modes` takes a list with one value per object, and `Render` (like the other option enums) is imported from `tcv_screenshots`.
 
 ### Config keys become `show` keywords
 
 The keys of the config dict were three-cad-viewer's camelCase names; the keywords are those of `show` in snake_case. Most keys convert mechanically (`clipSlider0` → `clip_slider_0`, `blackEdges` → `black_edges`, `clipIntersection` → `clip_intersection`, `clipObjectColors` → `clip_object_colors`, `ambientIntensity` → `ambient_intensity`). These do not:
 
-| 0.3.0 config key                   | 0.4.0 keyword                  |
+| 0.3.0 config key                   | 1.0.0 keyword                  |
 | ---------------------------------- | ------------------------------ |
 | `cadWidth`                         | `cad_width` (minimum 450)      |
 | `treeWidth`                        | `tree_width`                   |
@@ -252,7 +252,7 @@ Unchanged: `height`, `theme`, `glass`, `tools`, `ortho`, `up`, `axes`, `transpar
 
 ### Removed internals
 
-| 0.3.0                                                                                                    | 0.4.0                                                                                                                    |
+| 0.3.0                                                                                                    | 1.0.0                                                                                                                    |
 | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `get_saved_models()` returns `(model, name, config)` tuples                                              | `get_screenshots()` returns `(name, message)` tuples, `message` being ocp-viewer-core's data message; pass them to `render_models` unchanged |
 | `tcv_screenshots.render.process_examples(examples)`                                                      | `collect_models(*paths)`, returns a `CollectResult`                                                                      |
@@ -276,7 +276,7 @@ if asyncio.run(render_models_to_screenshots(models, destination)) > 0:
     sys.exit(1)
 ```
 
-In 0.4.0:
+In 1.0.0:
 
 ```python
 from tcv_screenshots import get_failed_models, get_screenshots, render_models, set_defaults
@@ -298,7 +298,7 @@ A camera computed by the script goes to `screenshot` as keywords: `position=`, `
 ### Behaviour changes
 
 - Every screenshot starts with a fresh viewer: settings of one screenshot (clipping, transparency, camera, tab) no longer carry over to the next.
-- Rendering uses the GPU by default; 0.3.0 always used the software renderer SwiftShader. In CI without a GPU, add `--no-gpu` (images then match what 0.4.0 renders with SwiftShader elsewhere).
+- Rendering uses the GPU by default; 0.3.0 always used the software renderer SwiftShader. In CI without a GPU, add `--no-gpu` (images then match what 1.0.0 renders with SwiftShader elsewhere).
 - The command line exits with status 1 when an example fails to load or run, not only when rendering fails.
 - An error in `screenshot` (formerly `save_model`) no longer raises: it is printed with its traceback, the screenshot is recorded as failed (`get_failed_models()`), and the code calling `screenshot` goes on. A leftover 0.3.0 key such as `cadWidth=500` shows up this way, as `TypeError: ... unexpected keyword argument 'cadWidth'`.
 
