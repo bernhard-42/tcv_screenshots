@@ -1,10 +1,8 @@
 name: Generate Screenshots
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  # Started by hand only, not on every push: Actions tab or
+  # `gh workflow run screenshots.yml`
   workflow_dispatch:
 
 jobs:
