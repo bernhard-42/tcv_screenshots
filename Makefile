@@ -21,10 +21,10 @@ release:
 create-release:
 	@git push
 	@git push --tags
-	@github-release release -u bernhard-42 -r tcv_screenshots -t v$(CURRENT_VERSION) -n tcv_screenshots-$(CURRENT_VERSION)
-	@sleep 2
-	@github-release upload  -u bernhard-42 -r tcv_screenshots -t v$(CURRENT_VERSION) -n tcv_screenshots-$(CURRENT_VERSION)-py3-none-any.whl -f dist/tcv_screenshots-$(CURRENT_VERSION)-py3-none-any.whl
-	@github-release upload  -u bernhard-42 -r tcv_screenshots -t v$(CURRENT_VERSION) -n tcv_screenshots-$(CURRENT_VERSION).tar.gz -f dist/tcv_screenshots-$(CURRENT_VERSION).tar.gz
+	@gh release create v$(CURRENT_VERSION) --repo bernhard-42/tcv_screenshots --verify-tag \
+		--title tcv_screenshots-$(CURRENT_VERSION) --notes v$(CURRENT_VERSION) \
+		dist/tcv_screenshots-$(CURRENT_VERSION)-py3-none-any.whl \
+		dist/tcv_screenshots-$(CURRENT_VERSION).tar.gz
 
 upload:
 	@twine upload dist/*
