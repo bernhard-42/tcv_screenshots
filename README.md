@@ -263,7 +263,7 @@ tcv_screenshots drives a Chromium-based browser through Playwright. On every run
 | Windows       | Microsoft Edge (always installed), Google Chrome, Playwright's Chromium |
 | macOS, Linux  | Google Chrome, Microsoft Edge, Playwright's Chromium     |
 
-An installed Chrome or Edge saves the download of Playwright's own Chromium (`playwright install chromium`, several hundred MB). A browser that is not installed is skipped within milliseconds, so nothing is stored between runs. The browser in use is printed (`Browser: chrome 155.0...`).
+An installed Chrome or Edge saves the download of Playwright's own Chromium (`playwright install chromium`, several hundred MB). A browser that is not installed is skipped within milliseconds, so nothing is stored between runs. On Linux, Playwright looks for Chrome and Edge only at `/opt/google/chrome/chrome` and `/opt/microsoft/msedge/msedge`, where e.g. Google's `.deb` package installs Chrome; a Flatpak install (`flatpak run com.google.Chrome`) is not found, and the run goes on with the next browser. The browser in use is printed (`Browser: chrome 155.0...`).
 
 - `--check` lists every candidate with its version and WebGL renderer and names the one a run would use. If none works, it says to run `playwright install chromium` and exits with status 1.
 - `--browser chrome|msedge|chromium` (`render_models(..., browser="chromium")`) uses exactly that browser, without falling back.
