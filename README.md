@@ -154,7 +154,57 @@ Use `--no-headless --pause` to adjust the view by hand; the camera values (`posi
 
 ## Scripted Use
 
-The two steps of the command line are functions, for build scripts that need more control:
+The two steps of the command line are functions, for build scripts that need more control. A build script and its examples could be laid out like this:
+
+```text
+build_screenshots.py
+examples/
+    box.py
+    cylinder.py
+more/
+    extra_example.py
+```
+
+Each example is a file with a `main()` as in [Writing Examples](#writing-examples). `examples/box.py`:
+
+```python
+from build123d import Box
+from tcv_screenshots import get_screenshots, screenshot
+
+
+def main():
+    screenshot(Box(10, 20, 30), name="box")
+    return get_screenshots()
+```
+
+`examples/cylinder.py`:
+
+```python
+from build123d import Cylinder
+from tcv_screenshots import get_screenshots, screenshot
+
+
+def main():
+    screenshot(Cylinder(10, 30), name="cylinder")
+    return get_screenshots()
+```
+
+`more/extra_example.py`, with two screenshots of the same part:
+
+```python
+from build123d import Box, fillet
+from tcv_screenshots import Render, get_screenshots, screenshot
+
+rounded = fillet(Box(20, 20, 20).edges(), 3)
+
+
+def main():
+    screenshot(rounded, name="rounded_box")
+    screenshot(rounded, name="rounded_box_edges", modes=[Render.EDGES])
+    return get_screenshots()
+```
+
+`build_screenshots.py` runs them, adds a screenshot of its own and renders everything:
 
 ```python
 from build123d import Box
@@ -170,17 +220,19 @@ from tcv_screenshots import (
 # Defaults for every following screenshot call, the keywords of `show`
 set_defaults(cad_width=1000, height=1000)
 
-# Run example files and directories of examples (each with a main() as above)
+# Run example files and directories of examples
 collected = collect_models("examples", "more/extra_example.py")
 
-# Or save models directly, without example files
-screenshot(Box(1, 2, 3), name="box")
-failed_saves = [name for name, _traceback in get_failed_models()]
+# Or request screenshots directly, without example files
+screenshot(Box(1, 2, 3), name="direct_box")
+failed_screenshots = [name for name, _traceback in get_failed_models()]
 
 rendered = render_models(collected.models + get_screenshots(), "screenshots")
-print(rendered.written)                                    # the PNG files
-print(collected.failed + failed_saves + rendered.failed)  # names of what failed
+print(rendered.written)                                         # the PNG files
+print(collected.failed + failed_screenshots + rendered.failed)  # names of what failed
 ```
+
+`python build_screenshots.py` writes `box.png`, `cylinder.png`, `rounded_box.png`, `rounded_box_edges.png` and `direct_box.png` into `screenshots/`, all 1000 x 1000 pixels, and prints an empty list of failures.
 
 - `collect_models(*paths, models_dir=None)` returns a `CollectResult` with `models` and `failed`. Each example runs with the defaults set before the call; a `set_defaults` inside one example does not reach the next. Screenshots a script requested with `screenshot` before the call stay in the collector for `get_screenshots()`. With `models_dir`, every model's JSON is saved there.
 - `render_models(models, output_dir, *, headless=True, pause=False, debug=False, gpu=True, browser=None)` writes `<output_dir>/<name>.png` and returns a `RenderResult` with `written` and `failed`. In an environment that already runs an event loop (e.g. Jupyter), use `await render_models_async(...)` with the same arguments.
