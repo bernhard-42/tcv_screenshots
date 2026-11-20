@@ -5,6 +5,7 @@ v1.1.0
     - **Changes**
         - `tcv_screenshots` depends on `ocp-viewer-core>=1.2.0,<1.3.0` (was `>=1.1.2,<1.2.0`) and `ocp-tessellate>=3.7.0,<3.8.0` (was `>=3.6.3,<3.7.0`): ocp-viewer-core 1.2.0 runs on ocp-tessellate 3.7, which brings the kernel plugins
         - The viewer page ships ocp-viewer-core JavaScript 1.2.0 (was 1.1.0) and three-cad-viewer 5.2.1 (was 5.1.3)
+        - The package carries its license (Apache-2.0) and those of the JavaScript it bundles: ocp-viewer-core (Apache-2.0), three-cad-viewer (MIT) and, inside it, three.js (MIT), postprocessing (Zlib) and n8ao (CC0)
 
 - **Inherited changes**
     - **from ocp-tessellate 3.7.0** (was 3.6.3)

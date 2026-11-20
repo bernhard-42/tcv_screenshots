@@ -36,4 +36,13 @@ markers = [
 include = ["tcv_screenshots*"]
 
 [tool.setuptools.package-data]
-tcv_screenshots = ["*.html", "static/*.js", "static/*.css", "static/ocp-viewer-core/*.js"]
+tcv_screenshots = [
+    "*.html",
+    "static/*.js",
+    "static/*.css",
+    "static/ocp-viewer-core/*.js",
+    # The licenses of the bundled JavaScript, which travel with it
+    "static/three-cad-viewer.LICENSE",
+    "static/three-cad-viewer.THIRD_PARTY_LICENSES",
+    "static/ocp-viewer-core/LICENSE",
+]
