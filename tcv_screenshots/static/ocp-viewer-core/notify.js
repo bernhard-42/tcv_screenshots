@@ -38,17 +38,104 @@
  *
  * The distinction is not "does it change often". It is whether re-applying the
  * last value to a different model still means anything.
+ *
+ * `selected` and `lastPick` are state since three-cad-viewer 5.2, kept so that
+ * `status()` can tell what the user has selected and last picked. Nothing
+ * re-applies them: no host acts on either (the clipboard runs on
+ * `selectedText`), Python's `combined_config` takes only the keys of
+ * `keys.CONFIG`, a new model reports the empty selection, and the page drops
+ * `lastPick` itself on a new model.
  */
 export const EVENT_KEYS = new Set([
   "selectedShapeIDs",
-  "selected",
-  "lastPick",
   "activeTool",
   "relative_time",
   // three-cad-viewer 5.1: the point Ctrl/Cmd-C copied, for hosts whose page
   // cannot reach the clipboard. A copy, not a property of the viewer.
   "copiedPoint",
+  // The select tool's selection as clipboard text, made here from `selected`
+  // (see `selectionText`). It belongs to that selection only.
+  "selectedText",
 ]);
+
+/**
+ * The kinds whose indices a person pastes into `select_faces`, `select_edges`
+ * and `select_vertices`; a whole solid has none.
+ */
+const INDEX_KINDS = new Set(["faces", "edges", "vertices"]);
+
+let unusableSelectionWarned = false;
+
+/**
+ * The clipboard text for three-cad-viewer's `selected`, or null to copy nothing.
+ *
+ * `selected` is `{"<object path>/<kind>": [indices]}` since three-cad-viewer
+ * 5.2.0, in the order of selection. The text is for a person, who pastes the
+ * indices into `select_edges(obj, [...])` and its siblings, so it stays what the
+ * clipboard held before 5.2.0 wherever that was right:
+ *
+ * - one key of faces, edges or vertices: the indices, comma-separated, e.g.
+ *   `6,16,7,17`;
+ * - several keys (several objects, or several kinds of one object): a comment
+ *   line `# <object path> <kind>` before each key's indices, so the indices of
+ *   two objects are never one list that selects the wrong shapes;
+ * - a whole solid (`<solid path>/solids`): its comment line only, `# <path>
+ *   solid`, since there are no indices to paste;
+ * - the empty selection (`{}`, sent when the select tool goes off or on
+ *   Escape): null, so the user's clipboard is not emptied.
+ *
+ * Anything else, e.g. the list of an older three-cad-viewer, is null with one
+ * warning: the peer range excludes that format, and guessing at it would copy
+ * text that selects the wrong shapes.
+ *
+ * The page hosts get the text as `selectedText` from the notifier below; a host
+ * with its own notification handler (the widget) calls this directly.
+ */
+export function selectionText(selected) {
+  const isPlainObject =
+    selected !== null &&
+    typeof selected === "object" &&
+    Array.isArray(selected) === false;
+  if (isPlainObject === false) {
+    if (unusableSelectionWarned === false) {
+      unusableSelectionWarned = true;
+      console.warn(
+        "ocp-viewer-core: `selected` is not grouped by object and kind; " +
+          "three-cad-viewer 5.2.0 or later is required, nothing was copied"
+      );
+    }
+    return null;
+  }
+
+  const entries = Object.entries(selected);
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const split = (key) => {
+    const slash = key.lastIndexOf("/");
+    return [key.slice(0, slash), key.slice(slash + 1)];
+  };
+
+  if (entries.length === 1) {
+    const [key, indices] = entries[0];
+    const [, kind] = split(key);
+    if (INDEX_KINDS.has(kind)) {
+      return indices.join(",");
+    }
+  }
+
+  const lines = [];
+  for (const [key, indices] of entries) {
+    const [object, kind] = split(key);
+    if (kind === "solids") {
+      lines.push(`# ${object} solid`);
+    } else {
+      lines.push(`# ${object} ${kind}`, indices.join(","));
+    }
+  }
+  return lines.join("\n");
+}
 
 /**
  * Create the notification callback.
@@ -87,6 +174,27 @@ export function createNotifier({ viewer, send, debug }) {
       if (!EVENT_KEYS.has(key)) {
         status[key] = value;
       }
+    }
+
+    // The clipboard text rides with the selection it was made from; for an
+    // empty selection there is none, so a host copies nothing.
+    if (message.selected !== undefined) {
+      const text = selectionText(message.selected);
+      if (text !== null) {
+        message.selectedText = text;
+      }
+    }
+
+    // One up for every selection and every pick, so a reader of the status
+    // tells a new one from the same one read twice, also when the new one
+    // equals the last.
+    if (message.selected !== undefined) {
+      status.selection_seq = (status.selection_seq ?? 0) + 1;
+      message.selection_seq = status.selection_seq;
+    }
+    if (message.lastPick !== undefined) {
+      status.pick_seq = (status.pick_seq ?? 0) + 1;
+      message.pick_seq = status.pick_seq;
     }
 
     // Tree state is not part of the change set - the viewer reports it

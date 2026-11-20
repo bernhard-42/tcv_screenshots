@@ -1,3 +1,25 @@
+v1.1.0
+
+- **Viewer changes**
+
+    - **Changes**
+        - `tcv_screenshots` depends on `ocp-viewer-core>=1.2.0,<1.3.0` (was `>=1.1.2,<1.2.0`) and `ocp-tessellate>=3.7.0,<3.8.0` (was `>=3.6.3,<3.7.0`): ocp-viewer-core 1.2.0 runs on ocp-tessellate 3.7, which brings the kernel plugins
+        - The viewer page ships ocp-viewer-core JavaScript 1.2.0 (was 1.1.0) and three-cad-viewer 5.2.1 (was 5.1.3)
+
+- **Inherited changes**
+    - **from ocp-tessellate 3.7.0** (was 3.6.3)
+        - Objects of CAD kernels other than OCCT are shown when the kernel's plugin is installed, alone or mixed with build123d, CadQuery and OCCT objects ([CAD kernel plugins](https://bernhard-42.github.io/ocp_viewer_docs/plugins/overview/)). The first plugin is [ocp-viewer-smlibpy](https://github.com/bernhard-42/ocp-viewer-smlibpy) for SMLib. Nothing changes for OCCT objects
+        - An object nothing can draw is left out, passed directly or inside a list, tuple or dict, and its type is named once per show, e.g. `show: skipped smlibpy.shapes.Part (no kernel plugin installed?)`. `None` and other builtin values stay silent, like numbers and strings
+        - Finding shared shapes no longer slows down with the square of their number
+        - Fix: edges and vertices inside a located assembly are measured where they are drawn, not at the origin, and the view fits them where they are
+        - Fix: a build123d builder (`BuildPart`, `BuildSketch`, `BuildLine`, `BuildSheet`) shown with `colors` is drawn in that color, not in its default color, and a part, sketch or sheet also takes the given `alphas`
+    - **from ocp-viewer-core 1.2.0** (was 1.1.2)
+        - A `show` with nothing it can draw prints `show: No CAD objects to show` and sends nothing, so the viewer keeps its model
+        - Fix: `progress=None` in `show`, `show_object`, `show_objects` and `show_all` shows no progress, as documented; it printed the default progress
+        - Fix: `modes=Render.FACES` (one mode, not a list) applies to every object, as documented; it failed with "object of type 'Render' has no len()"
+    - **from three-cad-viewer 5.2.1** (was 5.1.3)
+        - three.js r187 (was r184), postprocessing 6.39.6
+
 v1.0.0
 
 **API Changes (breaking)**

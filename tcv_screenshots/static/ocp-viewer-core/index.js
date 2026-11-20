@@ -27,7 +27,14 @@
    limitations under the License.
 */
 
-export { applyConfig, currentValue, isApplicable, GEOMETRY_KEYS, VIEWS } from "./apply.js";
+export {
+  ACTION_KEYS,
+  applyConfig,
+  currentValue,
+  isApplicable,
+  GEOMETRY_KEYS,
+  VIEWS,
+} from "./apply.js";
 
 export {
   buildDisplayOptions,
@@ -58,7 +65,12 @@ export {
 
 export { addAnimationTrack, animate, animationDuration } from "./animation.js";
 
-export { createNotifier, EVENT_KEYS } from "./notify.js";
+export { createNotifier, EVENT_KEYS, selectionText } from "./notify.js";
+
+// A host's changed settings, under their Python names, as a config an open
+// viewer applies - what a `{type: "settings"}` message to the page does.
+export { settingsToConfig } from "./settings.js";
+export { LIVE_SETTINGS, RENDERER_NAMES, VALUE_NAMES } from "./keys.js";
 
 // The splash. Data rather than policy, and here for the same reason the policy
 // is: every client shows it, and four of them had their own copy.

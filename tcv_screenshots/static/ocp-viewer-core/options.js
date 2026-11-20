@@ -148,6 +148,8 @@ export const VIEWER_OPTION_KEYS = [
   "panSpeed",
   "zoomSpeed",
   "rotateSpeed",
+  "cursorPivot",
+  "zoomToCursor",
   "clipSlider0",
   "clipSlider1",
   "clipSlider2",

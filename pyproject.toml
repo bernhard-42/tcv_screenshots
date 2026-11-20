@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tcv-screenshots"
-version = "1.0.0"
+version = "1.1.0"
 description = "Headless screenshot generator for three-cad-viewer"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,11 +12,11 @@ license = "Apache-2.0"
 authors = [{ name = "Bernhard Walter" }]
 dependencies = [
     "playwright>=1.40.0",
-    # major.minor must match the bundled ocp-viewer-core JavaScript (1.1.x)
-    "ocp-viewer-core>=1.1.2,<1.2.0",
-    # not imported directly: the floor makes sure the tessellation cache fix
-    # (3.6.3, issue #5) is installed; ocp-viewer-core alone allows >=3.6.2
-    "ocp-tessellate>=3.6.3,<3.7.0",
+    # major.minor must match the bundled ocp-viewer-core JavaScript (1.2.x)
+    "ocp-viewer-core>=1.2.0,<1.3.0",
+    # not imported directly: ocp-tessellate 3.7 brings the kernel plugins and
+    # the builder color fix; ocp-viewer-core 1.2 requires the same range
+    "ocp-tessellate>=3.7.0,<3.8.0",
 ]
 
 [project.scripts]

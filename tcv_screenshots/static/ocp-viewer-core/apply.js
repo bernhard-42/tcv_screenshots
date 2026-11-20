@@ -69,6 +69,46 @@ function call(viewer, method, args, notify) {
   }
 }
 
+/**
+ * Keys that do something rather than set a value: marks, a selection, a
+ * clear. They ride on the config message because it is the one message every
+ * host relays unchanged, which lets the agent tools that send them come as a
+ * Python release alone. A host keeps them out of whatever it holds as the
+ * last show's settings.
+ */
+export const ACTION_KEYS = ["agentHighlight", "selection", "clearSelection"];
+
+// What a setter returns when it did not apply its key, so `applyConfig` does
+// not report it as applied.
+const NOT_APPLIED = Symbol("not applied");
+
+/**
+ * A setter for a viewer method that takes component paths and returns the
+ * paths it could not find. The result goes to `ctx.onResult`, so a caller can
+ * report unknown paths instead of dropping them. A throw - `setSelection`
+ * without the select tool - goes to `ctx.onError` and leaves the rest of the
+ * config block to be applied; without `onError` it is rethrown, as any other
+ * setter's error is.
+ */
+function pathAction(key, method) {
+  return (v, value, ctx) => {
+    let unknown;
+    try {
+      unknown = v[method](value);
+    } catch (error) {
+      if (ctx.onError === undefined) {
+        throw error;
+      }
+      ctx.onError(key, error);
+      return NOT_APPLIED;
+    }
+    if (ctx.onResult !== undefined) {
+      ctx.onResult(key, unknown);
+    }
+    return undefined;
+  };
+}
+
 const SETTERS = {
   axes: (v, value, ctx) => call(v, "setAxes", [value], ctx.notify),
   axes0: (v, value, ctx) => call(v, "setAxes0", [value], ctx.notify),
@@ -116,6 +156,21 @@ const SETTERS = {
   zoomSpeed: (v, value, ctx) => call(v, "setZoomSpeed", [value], ctx.notify),
   panSpeed: (v, value, ctx) => call(v, "setPanSpeed", [value], ctx.notify),
   rotateSpeed: (v, value, ctx) => call(v, "setRotateSpeed", [value], ctx.notify),
+  cursorPivot: (v, value, ctx) => call(v, "setCursorPivot", [value], ctx.notify),
+  zoomToCursor: (v, value, ctx) => call(v, "setZoomToCursor", [value], ctx.notify),
+
+  // three-cad-viewer 5.2: which kind a pick and a select-tool click take -
+  // "none" (all), "vertex", "edge", "face" or "solid". A new model resets it.
+  shapeFilter: (v, value, ctx) => call(v, "setShapeFilter", [value], ctx.notify),
+
+  // three-cad-viewer 5.2, the agent's side (ACTION_KEYS). `agentHighlight`
+  // marks components or whole solids by path, `[]` clears; `selection` makes
+  // the paths the user's selection and needs the select tool on, so a block
+  // that wants it switches `analysisTool` first; `clearSelection` drops the
+  // user's selection and keeps the marks.
+  agentHighlight: pathAction("agentHighlight", "setAgentHighlight"),
+  selection: pathAction("selection", "setSelection"),
+  clearSelection: (v) => v.clearSelection(),
 
   // "light", "dark", or "browser" to follow the surface. Applied on a live
   // viewer as well as at construction, which is what lets a host whose theme
@@ -259,6 +314,9 @@ const GETTERS = {
   zoomSpeed: (v) => v.getZoomSpeed(),
   panSpeed: (v) => v.getPanSpeed(),
   rotateSpeed: (v) => v.getRotateSpeed(),
+  cursorPivot: (v) => v.getCursorPivot(),
+  zoomToCursor: (v) => v.getZoomToCursor(),
+  shapeFilter: (v) => v.getShapeFilter(),
 
   clipIntersection: (v) => v.getClipIntersection(),
   clipPlaneHelpers: (v) => v.getClipPlaneHelpers(),
@@ -294,6 +352,13 @@ export function isApplicable(key) {
  *                   onUnknown - (key, value) => void, for a key nothing here
  *                               handles. Left unset the key is dropped, which is
  *                               the default, but silently
+ *                   onResult  - (key, unknownPaths) => void, for `agentHighlight`
+ *                               and `selection`: the paths that name nothing in
+ *                               the model
+ *                   onError   - (key, error) => void, for `agentHighlight` and
+ *                               `selection` when the viewer refuses; the key is
+ *                               not applied and the next one is. Left unset the
+ *                               error is thrown
  * @returns the keys that were applied
  */
 export function applyConfig(viewer, config, ctx = {}) {
@@ -318,7 +383,9 @@ export function applyConfig(viewer, config, ctx = {}) {
 
     const setter = SETTERS[key] || clipSetter(key);
     if (setter) {
-      setter(viewer, value, ctx);
+      if (setter(viewer, value, ctx) === NOT_APPLIED) {
+        continue;
+      }
       applied.push(key);
     } else if (ctx.onUnknown) {
       ctx.onUnknown(key, value);

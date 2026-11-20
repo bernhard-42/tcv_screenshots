@@ -30,11 +30,12 @@
 */
 
 import { animate } from "./animation.js";
-import { applyConfig } from "./apply.js";
+import { ACTION_KEYS, applyConfig } from "./apply.js";
 import { logo } from "./logo.js";
 import { createNotifier } from "./notify.js";
 import { buildDisplayOptions, preset } from "./options.js";
 import { createRenderer } from "./render.js";
+import { settingsToConfig } from "./settings.js";
 import { currentStates, restoreStates } from "./states.js";
 import { VERSION } from "./version.js";
 
@@ -83,7 +84,7 @@ function consumeCoreVersion(config, send) {
  * @param listen      attach the window's `message` and `resize` listeners.
  *                    Default true; a host that has neither passes false and
  *                    drives `handleMessage` and `resize` itself
- * @returns `{ showSplash, setTheme, handleMessage, resize }` - the two page
+ * @returns `{ showSplash, setTheme, handleMessage, resize, dispose }` - the two page
  *          hosts deliver messages as a `message` event, the extension posting
  *          into the webview and the standalone's socket shim posting what came
  *          off the wire, and both let this file listen for them. A host whose
@@ -126,6 +127,13 @@ export function createPage({
     var notifier = null;
     var renderer = null;
     var status = {};
+
+    // Set by `dispose()`, and never cleared: a disposed page is not rebuilt in
+    // place. Every entry point checks it, because a message that arrives late
+    // - an IPC handler still holding this page object - would otherwise find
+    // `display == null`, take it for a page that never showed anything, and
+    // build a second Display in a container a new page may own by then.
+    var disposed = false;
 
     function debugLog(tag, obj) {
         console.log(tag, obj);
@@ -345,6 +353,9 @@ export function createPage({
      * function rather than a listener body.
      */
     function resize() {
+        if (disposed) {
+            return;
+        }
         // `ready` and not only null: clear() returns the viewer to its
         // never-rendered state, where resizeCadView throws - a splitter drag
         // over an emptied pane must not be an error. The next show measures
@@ -363,7 +374,30 @@ export function createPage({
         }
     }
 
+    /**
+     * Record that a config block's actions (ACTION_KEYS) were not applied at
+     * all, so whoever sent them reads that with `status()` instead of waiting
+     * for an outcome that never comes. A block without actions is untouched.
+     */
+    function refuseActions(config, reason) {
+        const actions = Object.keys(config).filter((key) =>
+            ACTION_KEYS.includes(key)
+        );
+        if (actions.length === 0) {
+            return;
+        }
+        status.last_action = {
+            seq: (status.last_action?.seq ?? 0) + 1,
+            unknown_paths: {},
+            error: { key: actions[0], message: reason }
+        };
+        send("status", { ...status });
+    }
+
     function handleMessage(message) {
+        if (disposed) {
+            return;
+        }
         var data = message;
 
         // Before anything reads the config: take the Python half's version
@@ -380,6 +414,21 @@ export function createPage({
                 ...splash,
                 config: { ...splash.config, ...(data.config || {}) }
             };
+        }
+
+        if (data.type === "settings") {
+            // A host's changed settings, under the Python names its settings
+            // dialog stores them by. Applied like a `ui` config, so the viewer
+            // changes now and reports the new values - otherwise its old ones
+            // would keep winning over the stored settings at the next show.
+            const translated = settingsToConfig(data.config || {});
+            if (translated.skipped.length > 0) {
+                debugLog(
+                    "settings: not for an open viewer, applied with the next model:",
+                    translated.skipped
+                );
+            }
+            data = { type: "ui", config: translated.config };
         }
 
         if (data.type === "data" && data?.data?.shapes?.parts?.length > 0) {
@@ -399,6 +448,12 @@ export function createPage({
                 // debugLog("logo zoom =", config.zoom);
             }
 
+            // A pick belongs to the model it was made on. three-cad-viewer
+            // reports the empty selection for a new model itself, but has no
+            // such reset for the last pick, so it is dropped here, before the
+            // render's notifications send the status on.
+            delete status.lastPick;
+
             showViewer(meshData, config);
 
             // Explicit states win, otherwise the user's prior visibility
@@ -409,6 +464,40 @@ export function createPage({
             timer.split("states updated");
 
             timer.stop();
+        } else if (data.type === "screenshot" && data.view !== undefined) {
+            // A capture from a camera of its own (three-cad-viewer 5.2), for
+            // the agent: answered like a screenshot, so every host writes the
+            // file as it does for one. The reply also carries what the image
+            // alone does not say - the camera and whether parts are displaced -
+            // for a host that reads the reply itself (Studio's sidecar gets it
+            // in Python); hosts that only write the file read `filename` and
+            // `data` and ignore the rest. The same goes into the status, and so
+            // does a failure, which gets no reply: a reply without `data` would
+            // reach the hosts' file writers.
+            viewer
+                .captureView({ view: data.view, ortho: data.ortho, clip: data.clip })
+                .then((result) => {
+                    status.last_capture = {
+                        filename: data.filename,
+                        camera: result.camera,
+                        displaced: result.displaced
+                    };
+                    send("screenshot", {
+                        filename: data.filename,
+                        data: result.dataUrl,
+                        camera: result.camera,
+                        displaced: result.displaced
+                    });
+                    send("status", { ...status });
+                })
+                .catch((error) => {
+                    status.last_capture = {
+                        filename: data.filename,
+                        error: String(error)
+                    };
+                    debugLog(`screenshot: capture failed: ${error}`);
+                    send("status", { ...status });
+                });
         } else if (data.type === "screenshot") {
             var promise = viewer.getImage(data.filename);
             promise.then((result) => {
@@ -457,14 +546,28 @@ export function createPage({
             // the hardest thing to debug.
             if (viewer == null || viewer.ready !== true) {
                 debugLog("ui: no model on screen, config not applied");
+                refuseActions(data.config, "no model on screen");
                 return;
             }
             if (_config["_splash"]) {
+                refuseActions(data.config, "the logo is on screen");
                 return;
             }
             if (data.config.debug) {
                 debugLog("data.config", data.config);
             }
+            // The agent's actions (ACTION_KEYS) answer through the status: one
+            // record per config block, numbered, with the paths each one could
+            // not find and the error of one the viewer refused, so whoever sent
+            // the block reads its outcome with `status()`.
+            const actions = Object.keys(data.config).filter((key) =>
+                ACTION_KEYS.includes(key)
+            );
+            const lastAction = {
+                seq: (status.last_action?.seq ?? 0) + 1,
+                unknown_paths: {},
+                error: null
+            };
             // One dispatch for every key, shared with every other host, so
             // that a setter cannot exist in one client and not another.
             const applied = applyConfig(viewer, data.config, {
@@ -485,16 +588,30 @@ export function createPage({
                 },
                 onUnknown: (key) => {
                     debugLog(`ui: no setter for '${key}'`);
+                },
+                onResult: (key, unknown) => {
+                    lastAction.unknown_paths[key] = unknown;
+                },
+                onError: (key, error) => {
+                    lastAction.error = { key: key, message: String(error.message) };
+                    debugLog(`ui: '${key}' not applied: ${error.message}`);
                 }
             });
+            if (actions.length > 0) {
+                status.last_action = lastAction;
+                send("status", { ...status });
+            }
             // The viewer changed; _config follows, for exactly the applied
             // keys. Without this the two disagree, and resize() - a window
             // resize, a splitter drag, Studio's pane observer on every Run -
             // re-derives geometry from the value the ui call just replaced:
             // set_viewer_config(glass=False) held until the next resize
             // snapped glass back on. Same family: tools, treeWidth, theme.
+            // Actions are not settings, so they stay out of it.
             for (const key of applied) {
-                _config[key] = data.config[key];
+                if (ACTION_KEYS.includes(key) === false) {
+                    _config[key] = data.config[key];
+                }
             }
             // Glass and tools decide whether the tree sits over the canvas or
             // beside it, and three-cad-viewer re-lays out with the `cadWidth`
@@ -522,27 +639,94 @@ export function createPage({
     // and calls `handleMessage` and `resize` itself. The dispatch above is the
     // same one either way, which is the point - a message branch is a feature,
     // and a host that wrote its own dispatch would have its own feature set.
+    //
+    // Named, so that `dispose()` can take them off again.
+    function onResize() {
+        resize();
+    }
+
+    function onMessage(event) {
+        handleMessage(
+            typeof event.data === "string" || event.data instanceof String
+                ? JSON.parse(event.data)
+                : event.data
+        );
+    }
+
     if (listen !== false) {
-        window.addEventListener("resize", () => resize(), true);
-        window.addEventListener("message", (event) => {
-            handleMessage(
-                typeof event.data === "string" || event.data instanceof String
-                    ? JSON.parse(event.data)
-                    : event.data
-            );
-        });
+        window.addEventListener("resize", onResize, true);
+        window.addEventListener("message", onMessage);
+    }
+
+    /**
+     * Tear the page down, so that the host can build a new one in the same
+     * container - build123d Studio's "Restart viewer", after an error has left
+     * three-cad-viewer unusable.
+     *
+     * The viewer before the display: `Viewer.dispose()` starts with `clear()`,
+     * which reaches into the display. Between them, the two free the WebGL
+     * context and the renderer, stop a running render loop (`clear()` empties
+     * its reasons), remove the display's listeners - the document `keydown`
+     * behind Ctrl/Cmd-C among them - and empty the container. A page that
+     * never showed anything has neither, and leaves the container as it was.
+     *
+     * Dispose the old page before creating the new one. three-cad-viewer's
+     * Display keeps its listeners in one manager shared by every Display of
+     * the bundle, so `display.dispose()` removes the new page's listeners too
+     * if that page already exists.
+     *
+     * Final: the page is not rebuilt in place, and every call on it afterwards
+     * does nothing. Calling `dispose()` twice is harmless. A half that throws
+     * while disposing is logged, and the rest is still torn down.
+     */
+    function dispose() {
+        if (disposed) {
+            return;
+        }
+        disposed = true;
+        if (listen !== false) {
+            window.removeEventListener("resize", onResize, true);
+            window.removeEventListener("message", onMessage);
+        }
+        // Each half on its own, and said rather than thrown: a restart is
+        // what a host does when the viewer is already broken, so one that
+        // throws here must not keep the other half, or the reset below, from
+        // happening.
+        for (const [name, part] of [["viewer", viewer], ["display", display]]) {
+            if (part == null) {
+                continue;
+            }
+            try {
+                part.dispose();
+            } catch (error) {
+                const msg = `dispose: the ${name} failed to dispose: ${error}`;
+                console.error(msg);
+                send("log", msg);
+            }
+        }
+        viewer = null;
+        display = null;
+        notifier = null;
+        renderer = null;
+        status = {};
+        _shapes = null;
+        _meshData = null;
+        _config = null;
     }
 
     return {
         /** Draw the splash, with whatever the host knows that the core cannot. */
         showSplash(config) {
+            if (disposed) {
+                return;
+            }
             const splash = logo();
             showViewer(splash.data, { ...splash.config, ...config });
         },
 
         /** The host's theme changed under it - a VS Code colour theme, say. */
         setTheme(next) {
-            if (viewer != null) {
+            if (disposed === false && viewer != null) {
                 viewer.setTheme(next);
             }
         },
@@ -551,6 +735,9 @@ export function createPage({
         handleMessage,
 
         /** The surface changed size. What the resize listener above calls. */
-        resize
+        resize,
+
+        /** Tear the page down, for a new one in the same container. */
+        dispose
     };
 }
